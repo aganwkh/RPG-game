@@ -1,0 +1,5 @@
+{
+  "name": "Chronicles: Infinite Adventure",
+  "description": "An infinite choose-your-own-adventure engine powered by Gemini, featuring real-time image generation, dynamic inventory, and a lore chatbot.",
+  "requestFramePermissions": []
+}
