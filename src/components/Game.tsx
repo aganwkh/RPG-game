@@ -92,47 +92,10 @@ export function Game() {
     }
   };
 
-  // Initial load: check for autosave
+  // Initial load
   useEffect(() => {
-    const autosave = localStorage.getItem('autosave_game_state');
-    if (autosave) {
-      try {
-        setGameState(JSON.parse(autosave));
-        showToast('已恢复上次的游戏进度');
-      } catch (e) {
-        startGame();
-      }
-    } else {
-      startGame();
-    }
+    startGame();
   }, []);
-
-  // Autosave periodically
-  useEffect(() => {
-    if (!gameState) return;
-    
-    const interval = setInterval(() => {
-      try {
-        localStorage.setItem('autosave_game_state', JSON.stringify(gameState));
-        showToast('游戏已自动保存');
-      } catch (err) {
-        console.error('Autosave failed', err);
-      }
-    }, 60000); // Every 60 seconds
-    
-    return () => clearInterval(interval);
-  }, [gameState]);
-  
-  // Also save when state changes
-  useEffect(() => {
-    if (gameState) {
-      try {
-        localStorage.setItem('autosave_game_state', JSON.stringify(gameState));
-      } catch (err) {
-        console.error('Autosave failed', err);
-      }
-    }
-  }, [gameState]);
 
   // Handle body scroll lock on mobile when sidebar is open
   useEffect(() => {

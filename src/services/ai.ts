@@ -10,8 +10,9 @@ const getSettings = (): ApiSettings => {
 };
 
 const getAI = () => {
-  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-  return new GoogleGenAI({ apiKey });
+  // @ts-ignore
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : '');
+  return new GoogleGenAI({ apiKey: apiKey as string });
 };
 
 const parseJSONResponse = (text: string) => {
@@ -37,18 +38,8 @@ export const generateStoryTurn = async (
   currentLocation: string = '未知地点'
 ): Promise<GameState> => {
   const settings = getSettings();
-  const prompt = `
-You are an infinite choose-your-own-adventure game engine.
+  const systemInstruction = `You are an infinite choose-your-own-adventure game engine.
 The user is playing a text-based adventure.
-Current context: ${context || 'The beginning of the adventure.'}
-User's action: ${action}
-Current Inventory: ${inventory.join(', ') || 'Empty'}
-Current Skills: ${skills.map(s => s.name + ' (Lv.' + s.level + ', EXP:' + s.exp + ', MaxLv:' + s.maxLevel + ')').join(', ') || 'None'}
-Current Quest: ${currentQuest || 'None'}
-Current Location: ${currentLocation}
-Current Stats: HP ${stats.hp}/${stats.maxHp}, Gold ${stats.gold}, Level ${stats.level}, EXP ${stats.exp || 0}/${stats.maxExp || 100}, Skill Points ${stats.skillPoints || 0}
-Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stats.attributes?.agility || 10}, Intelligence ${stats.attributes?.intelligence || 10}, Charisma ${stats.attributes?.charisma || 10}, Luck ${stats.attributes?.luck || 10}
-
 Continue the story based on the user's action. 
 Update the inventory, skills, current quest, location, and stats (hp, maxHp, gold, level, exp, maxExp, skillPoints, attributes) if the story dictates it (e.g., taking damage, finding gold, leveling up, moving to a new area, learning a new skill).
 
@@ -80,6 +71,7 @@ Provide 3-4 choices for the user's next action.
 - At least ONE choice MUST be a standard action.
 - If the user is in combat or a challenging situation, include choices that utilize their Current Skills.
 - You MUST frequently include choices that test the user's Attributes (Strength, Agility, Intelligence, Charisma, Luck). Format these choices clearly, e.g., "[力量检定] 强行推开巨石", "[敏捷检定] 尝试躲避陷阱", "[智力检定] 解读古老的符文", "[魅力检定] 说服守卫放行", "[幸运检定] 闭着眼睛随便选一条路". 
+- CRITICAL: 当故事文本中出现需要属性检定的选项时，在选项旁添加相应的属性提示（例如：“[力量检定]”）。
 - When the user selects an attribute check choice, you MUST determine the success or failure based on their current attribute value (10 is average, >15 is good, >20 is excellent) and describe the outcome vividly in the next turn's storyText.
 - If they have skillPoints > 0 AND they are currently interacting with a rare skill source (e.g., a master, a scroll, a grimoire), you can provide a choice to learn a new skill. Do NOT provide this choice randomly.
 
@@ -113,11 +105,19 @@ If the player is in a highly challenging event or combat, has been stuck in this
    - A previously acquired item suddenly reacting to the danger.
 3. Do NOT overuse this. It should feel like a desperate, last-second salvation, not a common occurrence. If a miracle happens, describe it dramatically and adjust the stats/story accordingly to let the player survive this turn.
 
-IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, and combatLogs MUST be written in Simplified Chinese.
-  `;
+IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, and combatLogs MUST be written in Simplified Chinese.`;
+
+  const dynamicContext = `Current context: ${context || 'The beginning of the adventure.'}
+User's action: ${action}
+Current Inventory: ${inventory.join(', ') || 'Empty'}
+Current Skills: ${skills.map(s => s.name + ' (Lv.' + s.level + ', EXP:' + s.exp + ', MaxLv:' + s.maxLevel + ')').join(', ') || 'None'}
+Current Quest: ${currentQuest || 'None'}
+Current Location: ${currentLocation}
+Current Stats: HP ${stats.hp}/${stats.maxHp}, Gold ${stats.gold}, Level ${stats.level}, EXP ${stats.exp || 0}/${stats.maxExp || 100}, Skill Points ${stats.skillPoints || 0}
+Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stats.attributes?.agility || 10}, Intelligence ${stats.attributes?.intelligence || 10}, Charisma ${stats.attributes?.charisma || 10}, Luck ${stats.attributes?.luck || 10}`;
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
-    const customPrompt = prompt + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+    const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
 {
   "storyText": "string",
   "choices": ["string"],
@@ -153,7 +153,10 @@ IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, an
       },
       body: JSON.stringify({
         model: settings.model || 'gpt-3.5-turbo',
-        messages: [{ role: 'user', content: customPrompt }],
+        messages: [
+          { role: 'system', content: customSystemInstruction },
+          { role: 'user', content: dynamicContext }
+        ],
         response_format: { type: 'json_object' }
       })
     });
@@ -170,8 +173,9 @@ IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, an
   const ai = getAI();
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-flash-lite-preview',
-    contents: prompt,
+    contents: dynamicContext,
     config: {
+      systemInstruction: systemInstruction,
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
@@ -226,7 +230,7 @@ IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, an
     }
   });
 
-  return JSON.parse(response.text || '{}');
+  return parseJSONResponse(response.text || '{}');
 };
 
 export const generateItemDescription = async (itemName: string, context: string): Promise<string> => {
