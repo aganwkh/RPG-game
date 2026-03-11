@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { generateStoryTurn } from '../services/ai';
+import { generateStoryTurn, updateGameMemory } from '../services/ai';
 import { GameState, LogEntry } from '../types';
 import { Sidebar } from './Sidebar';
 import { StoryView } from './StoryView';
 import { Chatbot } from './Chatbot';
 import { SettingsModal } from './SettingsModal';
 import { LogsModal } from './LogsModal';
+import { WorldbookModal } from './WorldbookModal';
 import { Loader2, Menu, MapPin, Heart, Coins, Scroll } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -15,6 +16,7 @@ export function Game() {
   const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
+  const [isWorldbookOpen, setIsWorldbookOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [skillCooldowns, setSkillCooldowns] = useState<Record<string, number>>({});
@@ -29,7 +31,7 @@ export function Game() {
     setError(null);
     setIsSidebarOpen(false);
     try {
-      const state = await generateStoryTurn('', '在一个奇幻世界中开始新的冒险。', [], [], '', { 
+      const state = await generateStoryTurn('', '在一个奇幻世界中开始新的冒险。', [], [], [], [], { 
         hp: 100, 
         maxHp: 100, 
         gold: 0, 
@@ -44,7 +46,7 @@ export function Game() {
           charisma: 10,
           luck: 10
         }
-      }, '未知地点');
+      }, '未知地点', { summary: '', worldInfo: [] });
       
       // Initialize logs
       state.logs = [{
@@ -135,9 +137,11 @@ export function Game() {
         choice, 
         gameState.inventory, 
         gameState.skills || [],
-        gameState.currentQuest,
+        gameState.quests || [],
+        gameState.npcStates || [],
         gameState.stats,
-        gameState.location
+        gameState.location,
+        gameState.memory || { summary: '', worldInfo: [] }
       );
       
       // Generate logs based on state changes
@@ -254,7 +258,25 @@ export function Game() {
 
       newState.logs = [...(gameState.logs || []), ...newLogs];
       
+      // Preserve the old memory while we update it asynchronously
+      newState.memory = gameState.memory || { summary: '', worldInfo: [] };
       setGameState(newState);
+
+      // Asynchronously update memory
+      updateGameMemory(newState.memory, choice, newState.storyText)
+        .then(updatedMemory => {
+          setGameState(current => {
+            if (!current) return current;
+            return {
+              ...current,
+              memory: updatedMemory
+            };
+          });
+        })
+        .catch(err => {
+          console.error('Failed to update memory:', err);
+        });
+
     } catch (err: any) {
       setError(err.message || '生成下一回合失败');
     } finally {
@@ -336,13 +358,15 @@ export function Game() {
         inventory={gameState?.inventory || []} 
         skills={gameState?.skills || []}
         skillCooldowns={skillCooldowns}
-        currentQuest={gameState?.currentQuest || ''} 
+        quests={gameState?.quests || []} 
+        npcStates={gameState?.npcStates || []}
         location={gameState?.location || ''}
         stats={gameState?.stats || { 
           hp: 100, maxHp: 100, gold: 0, level: 1, exp: 0, maxExp: 100, skillPoints: 0, 
           attributes: { strength: 10, agility: 10, intelligence: 10, charisma: 10, luck: 10 } 
         }}
         onOpenSettings={() => { setIsSettingsOpen(true); setIsSidebarOpen(false); }}
+        onOpenWorldbook={() => { setIsWorldbookOpen(true); setIsSidebarOpen(false); }}
         onOpenLogs={() => { setIsLogsOpen(true); setIsSidebarOpen(false); }}
         onSave={saveGame}
         onLoad={loadGame}
@@ -384,7 +408,7 @@ export function Game() {
                 <div className="flex flex-col min-w-0 items-center sm:items-start text-center sm:text-left">
                   <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider hidden md:block mb-0.5">当前任务</span>
                   <span className="text-xs md:text-sm text-indigo-200 truncate font-serif w-full max-w-[120px] sm:max-w-[200px] md:max-w-[300px]">
-                    {gameState.currentQuest || '自由探索...'}
+                    {gameState.quests && gameState.quests.length > 0 ? gameState.quests[0].name : '自由探索...'}
                   </span>
                 </div>
               </div>
@@ -410,6 +434,7 @@ export function Game() {
             <StoryView 
               gameState={gameState} 
               onChoice={handleChoice} 
+              onRestart={startGame}
               isLoading={isLoading} 
             />
           )}
@@ -424,6 +449,18 @@ export function Game() {
       <Chatbot gameState={gameState} />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <LogsModal isOpen={isLogsOpen} onClose={() => setIsLogsOpen(false)} logs={gameState?.logs || []} />
+      <WorldbookModal
+        isOpen={isWorldbookOpen}
+        onClose={() => setIsWorldbookOpen(false)}
+        memory={gameState?.memory || { summary: '', worldInfo: [] }}
+        logs={gameState?.logs || []}
+        onUpdateMemory={(newMemory) => {
+          if (gameState) {
+            setGameState({ ...gameState, memory: newMemory });
+            showToast('世界书已更新');
+          }
+        }}
+      />
 
       <AnimatePresence>
         {toastMessage && (

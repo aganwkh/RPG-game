@@ -8,17 +8,22 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const [settings, setSettings] = useState<ApiSettings>({ provider: 'default' });
+  const [settings, setSettings] = useState<ApiSettings>({ provider: 'default', bgProvider: 'default' });
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'main' | 'bg'>('main');
 
   useEffect(() => {
     if (isOpen) {
       const saved = localStorage.getItem('api_settings');
       if (saved) {
         try {
-          setSettings(JSON.parse(saved));
+          const parsed = JSON.parse(saved);
+          setSettings({
+            ...parsed,
+            bgProvider: parsed.bgProvider || 'default'
+          });
         } catch (e) {
           console.error('Failed to parse settings', e);
         }
@@ -26,6 +31,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       // Reset scan state on open
       setAvailableModels([]);
       setScanError(null);
+      setActiveTab('main');
     }
   }, [isOpen]);
 
@@ -35,16 +41,20 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   };
 
   const handleScanModels = async () => {
-    if (!settings.baseUrl || !settings.apiKey) {
+    const isBg = activeTab === 'bg';
+    const baseUrl = isBg ? settings.bgBaseUrl : settings.baseUrl;
+    const apiKey = isBg ? settings.bgApiKey : settings.apiKey;
+
+    if (!baseUrl || !apiKey) {
       setScanError('请先输入 Base URL 和 API Key');
       return;
     }
     setIsScanning(true);
     setScanError(null);
     try {
-      const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/models`, {
+      const response = await fetch(`${baseUrl.replace(/\/$/, '')}/models`, {
         headers: {
-          'Authorization': `Bearer ${settings.apiKey}`
+          'Authorization': `Bearer ${apiKey}`
         }
       });
       
@@ -58,8 +68,13 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         setAvailableModels(models);
         
         // Auto-select the first model if current model is not in the list
-        if (models.length > 0 && (!settings.model || !models.includes(settings.model))) {
-          setSettings({ ...settings, model: models[0] });
+        const currentModel = isBg ? settings.bgModel : settings.model;
+        if (models.length > 0 && (!currentModel || !models.includes(currentModel))) {
+          if (isBg) {
+            setSettings({ ...settings, bgModel: models[0] });
+          } else {
+            setSettings({ ...settings, model: models[0] });
+          }
         }
         
         if (models.length === 0) {
@@ -77,37 +92,89 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 
   if (!isOpen) return null;
 
+  const isBg = activeTab === 'bg';
+  const currentProvider = isBg ? settings.bgProvider : settings.provider;
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
-      <div className="glass-panel w-full max-w-md rounded-3xl p-8 shadow-2xl border border-white/10">
-        <div className="flex justify-between items-center mb-8">
+      <div className="glass-panel w-full max-w-md rounded-3xl p-8 shadow-2xl border border-white/10 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-serif font-semibold text-white tracking-wide">API 设置</h2>
           <button onClick={onClose} className="text-zinc-400 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-xl">
             <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="flex bg-black/40 p-1 rounded-xl mb-6">
+          <button
+            onClick={() => { setActiveTab('main'); setAvailableModels([]); setScanError(null); }}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'main' ? 'bg-indigo-500/20 text-indigo-300 shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            主线故事
+          </button>
+          <button
+            onClick={() => { setActiveTab('bg'); setAvailableModels([]); setScanError(null); }}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${activeTab === 'bg' ? 'bg-indigo-500/20 text-indigo-300 shadow-sm' : 'text-zinc-400 hover:text-zinc-200'}`}
+          >
+            后台总结
           </button>
         </div>
         
         <div className="space-y-5">
           <div>
             <label className="block text-sm font-medium text-zinc-300 mb-2 tracking-wide">API 提供商</label>
-            <select 
-              value={settings.provider}
-              onChange={e => setSettings({...settings, provider: e.target.value as 'default' | 'custom'})}
-              className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner appearance-none"
-            >
-              <option value="default">默认 (Gemini)</option>
-              <option value="custom">自定义 (OpenAI 兼容)</option>
-            </select>
+            <div className="relative">
+              <select 
+                value={currentProvider || 'default'}
+                onChange={e => {
+                  const val = e.target.value as 'default' | 'custom';
+                  if (isBg) {
+                    setSettings({...settings, bgProvider: val});
+                  } else {
+                    setSettings({...settings, provider: val});
+                  }
+                }}
+                className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner appearance-none"
+              >
+                <option value="default" className="bg-zinc-900 text-white">默认 (Gemini)</option>
+                <option value="custom" className="bg-zinc-900 text-white">自定义 (OpenAI 兼容)</option>
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center px-4 pointer-events-none text-zinc-400">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
           </div>
 
-          {settings.provider === 'custom' && (
+          {currentProvider === 'custom' && (
             <div className="space-y-5 animate-in fade-in slide-in-from-top-2 duration-300">
+              {isBg && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => {
+                      setSettings({
+                        ...settings,
+                        bgBaseUrl: settings.baseUrl,
+                        bgApiKey: settings.apiKey,
+                        bgModel: settings.model
+                      });
+                    }}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1.5 rounded-lg"
+                  >
+                    复制主线配置
+                  </button>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-2 tracking-wide">Base URL</label>
                 <input 
                   type="text" 
-                  value={settings.baseUrl || ''}
-                  onChange={e => setSettings({...settings, baseUrl: e.target.value})}
+                  value={(isBg ? settings.bgBaseUrl : settings.baseUrl) || ''}
+                  onChange={e => {
+                    if (isBg) setSettings({...settings, bgBaseUrl: e.target.value});
+                    else setSettings({...settings, baseUrl: e.target.value});
+                  }}
                   placeholder="https://api.openai.com/v1"
                   className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner placeholder:text-zinc-600"
                 />
@@ -116,8 +183,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <label className="block text-sm font-medium text-zinc-300 mb-2 tracking-wide">API Key</label>
                 <input 
                   type="password" 
-                  value={settings.apiKey || ''}
-                  onChange={e => setSettings({...settings, apiKey: e.target.value})}
+                  value={(isBg ? settings.bgApiKey : settings.apiKey) || ''}
+                  onChange={e => {
+                    if (isBg) setSettings({...settings, bgApiKey: e.target.value});
+                    else setSettings({...settings, apiKey: e.target.value});
+                  }}
                   placeholder="sk-..."
                   className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner placeholder:text-zinc-600"
                 />
@@ -138,18 +208,26 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 {availableModels.length > 0 ? (
                   <div className="relative">
                     <select
-                      value={settings.model || ''}
-                      onChange={e => setSettings({...settings, model: e.target.value})}
-                      className="w-full bg-black/40 border border-white/10 rounded-2xl pl-5 pr-20 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner appearance-none"
+                      value={(isBg ? settings.bgModel : settings.model) || ''}
+                      onChange={e => {
+                        if (isBg) setSettings({...settings, bgModel: e.target.value});
+                        else setSettings({...settings, model: e.target.value});
+                      }}
+                      className="w-full bg-black/40 border border-white/10 rounded-2xl pl-5 pr-24 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner appearance-none"
                     >
-                      <option value="" disabled>请选择模型</option>
+                      <option value="" disabled className="bg-zinc-900 text-zinc-500">请选择模型</option>
                       {availableModels.map(m => (
-                        <option key={m} value={m}>{m}</option>
+                        <option key={m} value={m} className="bg-zinc-900 text-white">{m}</option>
                       ))}
                     </select>
+                    <div className="absolute inset-y-0 right-20 flex items-center px-2 pointer-events-none text-zinc-400">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
                     <button 
                       onClick={() => setAvailableModels([])}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 px-2.5 py-1.5 rounded-lg transition-colors z-10"
                       title="切换为手动输入"
                     >
                       手动输入
@@ -158,8 +236,11 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 ) : (
                   <input 
                     type="text" 
-                    value={settings.model || ''}
-                    onChange={e => setSettings({...settings, model: e.target.value})}
+                    value={(isBg ? settings.bgModel : settings.model) || ''}
+                    onChange={e => {
+                      if (isBg) setSettings({...settings, bgModel: e.target.value});
+                      else setSettings({...settings, model: e.target.value});
+                    }}
                     placeholder="gpt-4o-mini 或点击上方扫描"
                     className="w-full bg-black/40 border border-white/10 rounded-2xl px-5 py-3.5 text-white outline-none focus:border-indigo-500/50 focus:bg-black/60 transition-all shadow-inner placeholder:text-zinc-600"
                   />

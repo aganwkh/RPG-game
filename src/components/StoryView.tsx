@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 interface StoryViewProps {
   gameState: GameState;
   onChoice: (choice: string) => void;
+  onRestart: () => void;
   isLoading: boolean;
 }
 
@@ -116,7 +117,7 @@ const renderFormattedText = (text: string): React.ReactNode => {
   return <>{root.children.map((child, i) => renderNode(child, i))}</>;
 };
 
-export function StoryView({ gameState, onChoice, isLoading }: StoryViewProps) {
+export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryViewProps) {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
@@ -175,33 +176,49 @@ export function StoryView({ gameState, onChoice, isLoading }: StoryViewProps) {
             </p>
           </div>
 
-          {/* Choices */}
+          {/* Choices or Game Over */}
           <motion.div 
             className="grid grid-cols-1 gap-4 mt-8"
             initial={{ opacity: 0 }}
             animate={{ opacity: isTyping ? 0 : 1 }}
             transition={{ duration: 0.5 }}
           >
-            {gameState.choices.map((choice, idx) => (
+            {gameState.isGameOver ? (
               <motion.button
-                key={idx}
-                onClick={() => onChoice(choice)}
+                onClick={onRestart}
                 disabled={isLoading || isTyping}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.4, delay: idx * 0.15 + (isTyping ? 0 : 0.5) }}
-                whileHover={{ scale: 1.02, x: 5 }}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4, delay: isTyping ? 0 : 0.5 }}
+                whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
-                className="text-left px-6 py-5 md:px-8 glass-panel rounded-2xl hover:bg-white/10 active:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden border border-white/5 hover:border-indigo-500/30 active:border-indigo-500/30 hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] flex items-center justify-between"
+                className="text-center px-6 py-5 md:px-8 glass-panel rounded-2xl bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden border border-red-500/30 hover:border-red-500/50 active:border-red-500/50 hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] flex items-center justify-center"
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500" />
-                <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-indigo-400 to-purple-500 transform scale-y-0 group-hover:scale-y-100 group-active:scale-y-100 transition-transform origin-top duration-300" />
-                <span className="text-zinc-200 font-serif text-base md:text-lg tracking-wide group-hover:text-white group-active:text-white transition-colors relative z-10">{choice}</span>
-                <span className="text-indigo-400/0 group-hover:text-indigo-400/80 group-active:text-indigo-400/80 transition-colors duration-300 relative z-10 transform translate-x-4 group-hover:translate-x-0 group-active:translate-x-0">
-                  →
-                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-red-500/20 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500" />
+                <span className="text-red-200 font-serif text-base md:text-lg tracking-wide group-hover:text-white group-active:text-white transition-colors relative z-10 font-bold">重新开始冒险</span>
               </motion.button>
-            ))}
+            ) : (
+              gameState.choices.map((choice, idx) => (
+                <motion.button
+                  key={idx}
+                  onClick={() => onChoice(choice)}
+                  disabled={isLoading || isTyping}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.4, delay: idx * 0.15 + (isTyping ? 0 : 0.5) }}
+                  whileHover={{ scale: 1.02, x: 5 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="text-left px-6 py-5 md:px-8 glass-panel rounded-2xl hover:bg-white/10 active:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden border border-white/5 hover:border-indigo-500/30 active:border-indigo-500/30 hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] flex items-center justify-between"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity duration-500" />
+                  <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-gradient-to-b from-indigo-400 to-purple-500 transform scale-y-0 group-hover:scale-y-100 group-active:scale-y-100 transition-transform origin-top duration-300" />
+                  <span className="text-zinc-200 font-serif text-base md:text-lg tracking-wide group-hover:text-white group-active:text-white transition-colors relative z-10">{choice}</span>
+                  <span className="text-indigo-400/0 group-hover:text-indigo-400/80 group-active:text-indigo-400/80 transition-colors duration-300 relative z-10 transform translate-x-4 group-hover:translate-x-0 group-active:translate-x-0">
+                    →
+                  </span>
+                </motion.button>
+              ))
+            )}
           </motion.div>
         </motion.div>
       </AnimatePresence>

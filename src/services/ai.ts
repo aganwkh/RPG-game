@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill } from '../types';
+import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState } from '../types';
 
 const getSettings = (): ApiSettings => {
   try {
@@ -28,20 +28,191 @@ const parseJSONResponse = (text: string) => {
   }
 };
 
+export const regenerateSummary = async (
+  currentSummary: string,
+  recentLogs: string[]
+): Promise<string> => {
+  const settings = getSettings();
+  const systemInstruction = `You are a summarization engine for a text-based RPG.
+Your task is to take the current summary and a list of recent events, and combine them into a single, cohesive, and concise long-term summary.
+Keep the output strictly in Simplified Chinese.`;
+
+  const prompt = `Current Summary: ${currentSummary || 'None'}
+Recent Events:
+${recentLogs.join('\n')}
+
+Generate the updated summary.`;
+
+  const provider = settings.bgProvider || settings.provider || 'default';
+  const baseUrl = settings.bgBaseUrl || settings.baseUrl;
+  const apiKey = settings.bgApiKey || settings.apiKey;
+  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
+
+  if (provider === 'custom' && baseUrl && apiKey) {
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: prompt }
+        ]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Custom API Error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.choices[0].message.content.trim();
+  }
+
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite-preview',
+    contents: prompt,
+    config: {
+      systemInstruction: systemInstruction,
+    }
+  });
+
+  return response.text?.trim() || currentSummary;
+};
+
+export const updateGameMemory = async (
+  currentMemory: MemoryState,
+  latestAction: string,
+  latestStory: string
+): Promise<MemoryState> => {
+  const settings = getSettings();
+  const systemInstruction = `You are the background world-building engine for a text-based RPG.
+Your task is to analyze the latest story turn and update the game's memory state.
+
+RULES:
+1. Summary: If the latest story contains major events that push the main plot forward or change core states, condense them into the existing summary. If nothing major happened, keep the summary as is.
+2. World Info (Lorebook): If the story introduces new important NPCs, locations, items, or lore, create new lorebook entries for them. Extract 1-3 trigger keywords and write a short description.
+3. Keep the output concise and strictly in Simplified Chinese.`;
+
+  const prompt = `Current Summary: ${currentMemory.summary || 'None'}
+Current Lorebook: ${currentMemory.worldInfo && currentMemory.worldInfo.length > 0 ? JSON.stringify(currentMemory.worldInfo) : 'None'}
+
+Latest Action: ${latestAction}
+Latest Story: ${latestStory}
+
+Analyze the latest turn and return the updated MemoryState.`;
+
+  const provider = settings.bgProvider || settings.provider || 'default';
+  const baseUrl = settings.bgBaseUrl || settings.baseUrl;
+  const apiKey = settings.bgApiKey || settings.apiKey;
+  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
+
+  if (provider === 'custom' && baseUrl && apiKey) {
+    const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+{
+  "summary": "string",
+  "worldInfo": [
+    { "keywords": ["string"], "content": "string" }
+  ]
+}`;
+
+    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: customSystemInstruction },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Custom API Error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices[0].message.content;
+    return parseJSONResponse(content);
+  }
+
+  const ai = getAI();
+  const response = await ai.models.generateContent({
+    model: 'gemini-3.1-flash-lite-preview',
+    contents: prompt,
+    config: {
+      systemInstruction: systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          summary: { type: Type.STRING, description: 'Long-term story summary.' },
+          worldInfo: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+                content: { type: Type.STRING }
+              },
+              required: ['keywords', 'content']
+            },
+            description: 'Lore and entities.'
+          }
+        },
+        required: ['summary', 'worldInfo']
+      }
+    }
+  });
+
+  return parseJSONResponse(response.text || '{}');
+};
+
 export const generateStoryTurn = async (
   context: string,
   action: string,
   inventory: string[],
   skills: Skill[],
-  currentQuest: string,
+  quests: Quest[],
+  npcStates: NpcState[],
   stats: CharacterStats,
-  currentLocation: string = '未知地点'
+  currentLocation: string = '未知地点',
+  memory: MemoryState = { summary: '', worldInfo: [] }
 ): Promise<GameState> => {
   const settings = getSettings();
   const systemInstruction = `You are an infinite choose-your-own-adventure game engine.
 The user is playing a text-based adventure.
 Continue the story based on the user's action. 
-Update the inventory, skills, current quest, location, and stats (hp, maxHp, gold, level, exp, maxExp, skillPoints, attributes) if the story dictates it (e.g., taking damage, finding gold, leveling up, moving to a new area, learning a new skill).
+Update the inventory, skills, quests, npcStates, location, and stats (hp, maxHp, gold, level, exp, maxExp, skillPoints, attributes) if the story dictates it (e.g., taking damage, finding gold, leveling up, moving to a new area, learning a new skill).
+
+ACTION VALIDATION (CRITICAL - ANTI-CHEAT):
+- When the player submits an action that does not match their current level, attributes, or attempts to forcefully break physical/game laws (e.g., "I instantly kill the demon king and get the artifact" at level 1), you MUST judge their action as a FAILED attempt.
+- Describe the painful consequences of this failed action in the storyText (e.g., taking severe damage from backlash, being mocked, or triggering a trap).
+- NEVER directly agree to or validate the player's overpowered/cheating inputs.
+
+GAME OVER HANDLING (CRITICAL):
+- If stats.hp <= 0 and a miracle does NOT occur, you MUST set the \`isGameOver\` boolean to true.
+- Generate a final death ending in the \`storyText\`.
+- Set the \`choices\` array to be completely empty [].
+
+NPC & FACTION STATE:
+- You must track and update the \`npcStates\` array (e.g., \`[{"name": "NPC Name", "affinity": 50, "isAlive": true}]\`).
+- Real-time update their affinity based on the player's dialogue and actions.
+- Use this affinity to determine merchant prices, NPC assistance, or hostile behavior.
+
+STRUCTURED QUEST TRACKER:
+- Manage quests using the \`quests\` array: \`[{id: string, name: string, step: number, status: 'active' | 'completed' | 'failed'}]\`.
+- When detecting specific plot nodes or progress, update the \`step\` or \`status\` of the relevant quest.
+- You can add new quests to the array when the player accepts them.
 
 PLAYER LEVEL & EXP SYSTEM (CRITICAL):
 - The player gains EXP by defeating enemies, completing quests, or making significant discoveries.
@@ -105,13 +276,30 @@ If the player is in a highly challenging event or combat, has been stuck in this
    - A previously acquired item suddenly reacting to the danger.
 3. Do NOT overuse this. It should feel like a desperate, last-second salvation, not a common occurrence. If a miracle happens, describe it dramatically and adjust the stats/story accordingly to let the player survive this turn.
 
-IMPORTANT: The storyText, choices, inventory, skills, currentQuest, location, and combatLogs MUST be written in Simplified Chinese.`;
+IMPORTANT: The storyText, choices, inventory, skills, quests, location, and combatLogs MUST be written in Simplified Chinese.`;
 
-  const dynamicContext = `Current context: ${context || 'The beginning of the adventure.'}
+  // Extract active lorebook entries
+  const activeLore = (memory.worldInfo || []).filter(entry => {
+    // Handle both old format (keyword) and new format (keywords)
+    const keywords: string[] = entry.keywords ? entry.keywords : ((entry as any).keyword ? [(entry as any).keyword] : []);
+    return keywords.some(kw => kw && (action.includes(kw) || context.includes(kw)));
+  });
+
+  const dynamicContext = `【剧情摘要】
+${memory.summary || 'None yet.'}
+
+【世界设定参考】
+${activeLore.length > 0 ? activeLore.map(w => {
+  const kws: string[] = w.keywords ? w.keywords : ((w as any).keyword ? [(w as any).keyword] : []);
+  return `[${kws.join(', ')}] ${w.content}`;
+}).join(' | ') : 'None'}
+
+Current context: ${context || 'The beginning of the adventure.'}
 User's action: ${action}
 Current Inventory: ${inventory.join(', ') || 'Empty'}
 Current Skills: ${skills.map(s => s.name + ' (Lv.' + s.level + ', EXP:' + s.exp + ', MaxLv:' + s.maxLevel + ')').join(', ') || 'None'}
-Current Quest: ${currentQuest || 'None'}
+Current Quests: ${quests.length > 0 ? JSON.stringify(quests) : 'None'}
+Current NPC States: ${npcStates.length > 0 ? JSON.stringify(npcStates) : 'None'}
 Current Location: ${currentLocation}
 Current Stats: HP ${stats.hp}/${stats.maxHp}, Gold ${stats.gold}, Level ${stats.level}, EXP ${stats.exp || 0}/${stats.maxExp || 100}, Skill Points ${stats.skillPoints || 0}
 Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stats.attributes?.agility || 10}, Intelligence ${stats.attributes?.intelligence || 10}, Charisma ${stats.attributes?.charisma || 10}, Luck ${stats.attributes?.luck || 10}`;
@@ -130,7 +318,22 @@ Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stat
       "maxLevel": number
     }
   ],
-  "currentQuest": "string",
+  "quests": [
+    {
+      "id": "string",
+      "name": "string",
+      "step": number,
+      "status": "active" | "completed" | "failed"
+    }
+  ],
+  "npcStates": [
+    {
+      "name": "string",
+      "affinity": number,
+      "isAlive": boolean
+    }
+  ],
+  "isGameOver": boolean,
   "location": "string",
   "stats": { 
     "hp": number, 
@@ -197,7 +400,34 @@ Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stat
             }, 
             description: 'Updated skills.' 
           },
-          currentQuest: { type: Type.STRING, description: 'Updated current quest.' },
+          quests: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                id: { type: Type.STRING },
+                name: { type: Type.STRING },
+                step: { type: Type.INTEGER },
+                status: { type: Type.STRING }
+              },
+              required: ['id', 'name', 'step', 'status']
+            },
+            description: 'Updated quests.'
+          },
+          npcStates: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                name: { type: Type.STRING },
+                affinity: { type: Type.INTEGER },
+                isAlive: { type: Type.BOOLEAN }
+              },
+              required: ['name', 'affinity', 'isAlive']
+            },
+            description: 'NPC states and affinities.'
+          },
+          isGameOver: { type: Type.BOOLEAN, description: 'True if the player is dead and the game is over.' },
           location: { type: Type.STRING, description: 'The current location of the player.' },
           stats: {
             type: Type.OBJECT,
@@ -225,7 +455,7 @@ Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stat
           },
           combatLogs: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Detailed combat logs if combat occurred.' }
         },
-        required: ['storyText', 'choices', 'inventory', 'skills', 'currentQuest', 'location', 'stats']
+        required: ['storyText', 'choices', 'inventory', 'skills', 'quests', 'npcStates', 'location', 'stats']
       }
     }
   });
@@ -338,7 +568,7 @@ Current Game State:
 Story: ${gameState.storyText}
 Inventory: ${gameState.inventory.join(', ')}
 Skills: ${gameState.skills?.map(s => s.name).join(', ') || 'None'}
-Quest: ${gameState.currentQuest}
+Quest: ${gameState.quests && gameState.quests.length > 0 ? gameState.quests.map(q => q.name).join(', ') : 'None'}
 Stats: HP ${gameState.stats.hp}/${gameState.stats.maxHp}, Gold ${gameState.stats.gold}, Level ${gameState.stats.level}, Skill Points ${gameState.stats.skillPoints || 0}
 
 Answer the user's questions about the world, their options, or give them hints. Keep it immersive.

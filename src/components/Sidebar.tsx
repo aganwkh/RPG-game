@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Backpack, Scroll, User, Settings, Save, Download, Heart, Coins, Star, Loader2, X, MapPin, Compass, BookOpen, Zap, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
-import { CharacterStats, Skill } from '../types';
+import { CharacterStats, Skill, Quest, NpcState } from '../types';
 import { generateItemDescription, generateSkillDescription } from '../services/ai';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -8,10 +8,12 @@ interface SidebarProps {
   inventory: string[];
   skills: Skill[];
   skillCooldowns: Record<string, number>;
-  currentQuest: string;
+  quests: Quest[];
+  npcStates: NpcState[];
   location: string;
   stats: CharacterStats;
   onOpenSettings: () => void;
+  onOpenWorldbook: () => void;
   onOpenLogs: () => void;
   onSave: () => void;
   onLoad: () => void;
@@ -21,7 +23,7 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-export function Sidebar({ inventory, skills, skillCooldowns, currentQuest, location, stats, onOpenSettings, onOpenLogs, onSave, onLoad, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, location, stats, onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
   const [itemDescriptions, setItemDescriptions] = useState<Record<string, string>>({});
   const [skillDescriptions, setSkillDescriptions] = useState<Record<string, string>>({});
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -105,7 +107,7 @@ export function Sidebar({ inventory, skills, skillCooldowns, currentQuest, locat
     setLoadingItems(prev => new Set(prev).add(item));
     
     try {
-      const desc = await generateItemDescription(item, currentQuest);
+      const desc = await generateItemDescription(item, quests.length > 0 ? quests[0].name : '');
       
       setItemDescriptions(prev => {
         const next = { ...prev, [item]: desc };
@@ -134,7 +136,7 @@ export function Sidebar({ inventory, skills, skillCooldowns, currentQuest, locat
     setLoadingSkills(prev => new Set(prev).add(skillName));
     
     try {
-      const desc = await generateSkillDescription(skillName, currentQuest);
+      const desc = await generateSkillDescription(skillName, quests.length > 0 ? quests[0].name : '');
       
       setSkillDescriptions(prev => {
         const next = { ...prev, [skillName]: desc };
@@ -172,7 +174,16 @@ export function Sidebar({ inventory, skills, skillCooldowns, currentQuest, locat
       >
         <div className="p-8 border-b border-white/5 flex justify-between items-center">
           <div>
-            <h1 className="text-2xl font-serif font-semibold tracking-wide text-zinc-100">编年史</h1>
+            <h1 className="text-2xl font-serif font-semibold tracking-wide text-zinc-100 flex items-center gap-3">
+              编年史
+              <button 
+                onClick={onOpenWorldbook}
+                className="p-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors group"
+                title="打开世界书与记忆"
+              >
+                <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              </button>
+            </h1>
             <p className="text-xs text-indigo-400/80 uppercase tracking-[0.2em] mt-2">无尽冒险</p>
           </div>
           <button 
@@ -436,10 +447,55 @@ export function Sidebar({ inventory, skills, skillCooldowns, currentQuest, locat
             <Scroll className="w-4 h-4" />
             <h2 className="text-xs font-semibold uppercase tracking-widest">当前任务</h2>
           </div>
-          <div className="glass-panel p-5 rounded-2xl">
-            <p className="text-sm text-zinc-300 leading-relaxed font-serif">
-              {currentQuest || '漫无目的地游荡...'}
-            </p>
+          <div className="glass-panel p-5 rounded-2xl flex flex-col gap-3">
+            {quests && quests.length > 0 ? (
+              quests.map((q, i) => (
+                <div key={i} className="flex flex-col gap-1 border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-indigo-300">{q.name}</span>
+                    <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                      q.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400' :
+                      q.status === 'failed' ? 'bg-red-500/20 text-red-400' :
+                      'bg-indigo-500/20 text-indigo-400'
+                    }`}>
+                      {q.status === 'completed' ? '已完成' : q.status === 'failed' ? '失败' : '进行中'}
+                    </span>
+                  </div>
+                  <span className="text-xs text-zinc-400">阶段: {q.step}</span>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-zinc-300 leading-relaxed font-serif">
+                漫无目的地游荡...
+              </p>
+            )}
+          </div>
+        </section>
+
+        <section>
+          <div className="flex items-center gap-2 mb-5 text-zinc-400">
+            <User className="w-4 h-4" />
+            <h2 className="text-xs font-semibold uppercase tracking-widest">人物关系</h2>
+          </div>
+          <div className="glass-panel p-5 rounded-2xl flex flex-col gap-3">
+            {npcStates && npcStates.length > 0 ? (
+              npcStates.map((state, i) => (
+                <div key={i} className="flex items-center justify-between border-b border-white/5 pb-2 last:border-0 last:pb-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${state.isAlive ? 'bg-emerald-400' : 'bg-red-500'}`} />
+                    <span className={`text-sm font-medium ${state.isAlive ? 'text-zinc-300' : 'text-zinc-500 line-through'}`}>{state.name}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Heart className={`w-3 h-3 ${state.affinity > 50 ? 'text-pink-400' : state.affinity < 0 ? 'text-red-500' : 'text-zinc-400'}`} />
+                    <span className="text-xs font-mono text-zinc-400">{state.affinity}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-zinc-500 leading-relaxed font-serif">
+                孤身一人...
+              </p>
+            )}
           </div>
         </section>
 

@@ -22,6 +22,11 @@ export interface ApiSettings {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  
+  bgProvider?: 'default' | 'custom';
+  bgBaseUrl?: string;
+  bgApiKey?: string;
+  bgModel?: string;
 }
 
 export interface LogEntry {
@@ -38,14 +43,40 @@ export interface Skill {
   maxLevel: number;
 }
 
+export interface LorebookEntry {
+  keywords: string[];
+  content: string;
+}
+
+export interface MemoryState {
+  summary: string;
+  worldInfo: LorebookEntry[];
+}
+
+export interface Quest {
+  id: string;
+  name: string;
+  step: number;
+  status: 'active' | 'completed' | 'failed';
+}
+
+export interface NpcState {
+  name: string;
+  affinity: number;
+  isAlive: boolean;
+}
+
 export interface GameState {
   storyText: string;
   choices: string[];
   inventory: string[];
   skills: Skill[];
-  currentQuest: string;
+  quests: Quest[];
+  npcStates: NpcState[];
+  isGameOver?: boolean;
   location: string;
   stats: CharacterStats;
+  memory?: MemoryState;
   logs?: LogEntry[];
   combatLogs?: string[];
 }
