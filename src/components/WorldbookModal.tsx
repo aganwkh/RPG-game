@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Save, Plus, Trash2, Upload, Download, BookOpen, BrainCircuit } from 'lucide-react';
 import { MemoryState, LorebookEntry, LogEntry } from '../types';
-import { regenerateSummary } from '../services/ai';
+import { regenerateSummary, getEmbedding } from '../services/ai';
 
 interface WorldbookModalProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ export function WorldbookModal({ isOpen, onClose, memory, onUpdateMemory, logs }
   const [activeTab, setActiveTab] = useState<'worldbook' | 'summary'>('worldbook');
   const [localMemory, setLocalMemory] = useState<MemoryState>(memory);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync local state when modal opens
@@ -27,9 +28,32 @@ export function WorldbookModal({ isOpen, onClose, memory, onUpdateMemory, logs }
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
-    onUpdateMemory(localMemory);
-    onClose();
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const updatedWorldInfo = await Promise.all(
+        localMemory.worldInfo.map(async (entry, index) => {
+          const originalEntry = memory.worldInfo[index];
+          const contentChanged = !originalEntry || originalEntry.content !== entry.content;
+          
+          if ((!entry.embedding || contentChanged) && entry.content.trim() !== '') {
+            try {
+              const embedding = await getEmbedding(entry.content);
+              return { ...entry, embedding };
+            } catch (err) {
+              console.error("Failed to get embedding for entry:", entry.content, err);
+              return entry; // Fallback to no embedding if it fails
+            }
+          }
+          return entry;
+        })
+      );
+      
+      onUpdateMemory({ ...localMemory, worldInfo: updatedWorldInfo });
+      onClose();
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddEntry = () => {
@@ -267,10 +291,11 @@ export function WorldbookModal({ isOpen, onClose, memory, onUpdateMemory, logs }
             </button>
             <button
               onClick={handleSave}
-              className="px-5 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2"
+              disabled={isSaving}
+              className="px-5 py-2.5 text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl shadow-lg shadow-indigo-500/20 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Save className="w-4 h-4" />
-              保存更改
+              <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
+              {isSaving ? '保存中...' : '保存更改'}
             </button>
           </div>
         </motion.div>

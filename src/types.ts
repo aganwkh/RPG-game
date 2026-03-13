@@ -46,6 +46,7 @@ export interface Skill {
 export interface LorebookEntry {
   keywords: string[];
   content: string;
+  embedding?: number[];
 }
 
 export interface MemoryState {
@@ -84,6 +85,30 @@ export interface GameState {
 export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
+}
+
+export type StatOperation = 'add' | 'subtract' | 'set';
+
+export interface StatDelta {
+  target: 'hp' | 'maxHp' | 'gold' | 'level' | 'exp' | 'skillPoints';
+  operation: StatOperation;
+  value: number;
+}
+
+export interface InventoryDelta {
+  operation: 'add' | 'remove';
+  item: string;
+}
+
+export interface StateUpdateResult {
+  statDeltas?: StatDelta[];
+  inventoryDeltas?: InventoryDelta[];
+  newLocation?: string;
+  newSkills?: Skill[];
+  questUpdates?: Quest[];
+  npcUpdates?: NpcState[];
+  logs?: LogEntry[];
+  isGameOver?: boolean;
 }
 
 declare global {

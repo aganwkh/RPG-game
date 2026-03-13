@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { generateStoryTurn, updateGameMemory } from '../services/ai';
+import { generateStoryStream, extractStateUpdates, updateGameMemory } from '../services/ai';
+import { applyStateUpdates } from '../services/stateReducer';
 import { GameState, LogEntry } from '../types';
 import { Sidebar } from './Sidebar';
 import { StoryView } from './StoryView';
@@ -30,32 +31,49 @@ export function Game() {
     setError(null);
     setIsSidebarOpen(false);
     try {
-      const state = await generateStoryTurn('', '在一个奇幻世界中开始新的冒险。', [], [], [], [], { 
-        hp: 100, 
-        maxHp: 100, 
-        gold: 0, 
-        level: 1, 
-        exp: 0,
-        maxExp: 100,
-        skillPoints: 0,
-        attributes: {
-          strength: 10,
-          agility: 10,
-          intelligence: 10,
-          charisma: 10,
-          luck: 10
-        }
-      }, '未知地点', { summary: '', worldInfo: [] });
+      const initialState: GameState = {
+        storyText: '',
+        choices: [],
+        inventory: [],
+        skills: [],
+        quests: [],
+        npcStates: [],
+        location: '未知地点',
+        stats: {
+          hp: 100, maxHp: 100, gold: 0, level: 1, exp: 0, maxExp: 100, skillPoints: 0,
+          attributes: { strength: 10, agility: 10, intelligence: 10, charisma: 10, luck: 10 }
+        },
+        memory: { summary: '', worldInfo: [] },
+        logs: [{
+          id: Date.now().toString(),
+          timestamp: Date.now(),
+          type: 'system',
+          text: '冒险开始了...'
+        }]
+      };
       
-      // Initialize logs
-      state.logs = [{
-        id: Date.now().toString(),
-        timestamp: Date.now(),
-        type: 'system',
-        text: '冒险开始了...'
-      }];
+      setGameState(initialState);
       
-      setGameState(state);
+      let fullStory = '';
+      const stream = generateStoryStream(initialState, '在一个奇幻世界中开始新的冒险。');
+      for await (const chunk of stream) {
+        fullStory += chunk;
+        setGameState(prev => prev ? { ...prev, storyText: fullStory } : null);
+      }
+      
+      // Parse choices
+      let choices: string[] = [];
+      const choicesMatch = fullStory.match(/CHOICES:\n([\s\S]*)/);
+      if (choicesMatch) {
+        choices = choicesMatch[1].split('\n').filter(c => c.trim()).map(c => c.replace(/^\d+\.\s*/, '').trim());
+        fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
+      }
+      
+      setGameState(prev => prev ? { ...prev, storyText: fullStory, choices } : null);
+      
+      const updates = await extractStateUpdates(initialState, '在一个奇幻世界中开始新的冒险。', fullStory);
+      setGameState(prev => prev ? applyStateUpdates(prev, updates) : null);
+      
       showToast('新冒险已开始');
     } catch (err: any) {
       setError(err.message || '启动游戏失败');
@@ -131,150 +149,64 @@ export function Game() {
     }
 
     try {
-      const newState = await generateStoryTurn(
-        gameState.storyText, 
-        choice, 
-        gameState.inventory, 
-        gameState.skills || [],
-        gameState.quests || [],
-        gameState.npcStates || [],
-        gameState.stats,
-        gameState.location,
-        gameState.memory || { summary: '', worldInfo: [] }
-      );
+      // Clear previous choices and start streaming
+      setGameState(prev => prev ? { ...prev, choices: [], storyText: '' } : null);
       
-      // Generate logs based on state changes
-      const newLogs: LogEntry[] = [];
-      const now = Date.now();
+      let fullStory = '';
+      const stream = generateStoryStream(gameState, choice);
+      for await (const chunk of stream) {
+        fullStory += chunk;
+        setGameState(prev => prev ? { ...prev, storyText: fullStory } : null);
+      }
       
-      newLogs.push({
-        id: `${now}-choice`,
-        timestamp: now,
-        type: 'choice',
-        text: `你选择了: ${choice}`
+      // Parse choices
+      let choices: string[] = [];
+      const choicesMatch = fullStory.match(/CHOICES:\n([\s\S]*)/);
+      if (choicesMatch) {
+        choices = choicesMatch[1].split('\n').filter(c => c.trim()).map(c => c.replace(/^\d+\.\s*/, '').trim());
+        fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
+      }
+      
+      setGameState(prev => prev ? { ...prev, storyText: fullStory, choices } : null);
+      
+      const updates = await extractStateUpdates(gameState, choice, fullStory);
+      setGameState(prev => {
+        if (!prev) return null;
+        const newState = applyStateUpdates(prev, updates);
+        
+        // Add choice log
+        const now = Date.now();
+        newState.logs = newState.logs || [];
+        newState.logs.push({
+          id: `${now}-choice`,
+          timestamp: now,
+          type: 'choice',
+          text: `你选择了: ${choice}`
+        });
+        
+        // Keep last 50 logs
+        newState.logs = newState.logs.slice(-50);
+        
+        return newState;
       });
-
-      if (newState.location && newState.location !== gameState.location) {
-        newLogs.push({
-          id: `${now}-location`,
-          timestamp: now + 1,
-          type: 'location',
-          text: `到达新地点: ${newState.location}`
-        });
-      }
-
-      if (newState.stats.level > gameState.stats.level) {
-        newLogs.push({
-          id: `${now}-level`,
-          timestamp: now + 2,
-          type: 'level_up',
-          text: `升级了！当前等级: ${newState.stats.level}`
-        });
-      }
-
-      if ((newState.stats.exp || 0) > (gameState.stats.exp || 0) && newState.stats.level === gameState.stats.level) {
-        newLogs.push({
-          id: `${now}-exp`,
-          timestamp: now + 2.5,
-          type: 'event',
-          text: `获得了 ${newState.stats.exp! - (gameState.stats.exp || 0)} 点经验值`
-        });
-      }
-
-      const oldAttrs = gameState.stats.attributes || { strength: 10, agility: 10, intelligence: 10, charisma: 10, luck: 10 };
-      const newAttrs = newState.stats.attributes || { strength: 10, agility: 10, intelligence: 10, charisma: 10, luck: 10 };
       
-      const attrNames: Record<keyof typeof oldAttrs, string> = {
-        strength: '力量',
-        agility: '敏捷',
-        intelligence: '智力',
-        charisma: '魅力',
-        luck: '幸运'
-      };
-
-      (Object.keys(attrNames) as Array<keyof typeof oldAttrs>).forEach((key, index) => {
-        if (newAttrs[key] > oldAttrs[key]) {
-          newLogs.push({
-            id: `${now}-attr-${key}-${index}`,
-            timestamp: now + 10 + index,
-            type: 'level_up',
-            text: `属性提升！${attrNames[key]} +${newAttrs[key] - oldAttrs[key]} (当前: ${newAttrs[key]})`
+      // Asynchronously update memory every 5 turns
+      const choiceLogs = gameState.logs?.filter(l => l.type === 'choice') || [];
+      if (choiceLogs.length > 0 && choiceLogs.length % 5 === 0) {
+        updateGameMemory(gameState.memory || { summary: '', worldInfo: [] }, choice, fullStory)
+          .then(updatedMemory => {
+            setGameState(current => {
+              if (!current) return current;
+              return {
+                ...current,
+                memory: updatedMemory
+              };
+            });
+          })
+          .catch(err => {
+            console.error('Failed to update memory:', err);
           });
-        }
-      });
-
-      const newItems = newState.inventory.filter(item => !gameState.inventory.includes(item));
-      newItems.forEach((item, index) => {
-        newLogs.push({
-          id: `${now}-item-${index}`,
-          timestamp: now + 3 + index,
-          type: 'item',
-          text: `获得了物品: ${item}`
-        });
-      });
-
-      const newSkills = (newState.skills || []).filter(skill => !(gameState.skills || []).some(s => s.name === skill.name));
-      newSkills.forEach((skill, index) => {
-        newLogs.push({
-          id: `${now}-skill-${index}`,
-          timestamp: now + 4 + index,
-          type: 'skill',
-          text: `学会了新技能: ${skill.name}`
-        });
-      });
-
-      const leveledUpSkills = (newState.skills || []).filter(skill => {
-        const oldSkill = (gameState.skills || []).find(s => s.name === skill.name);
-        return oldSkill && skill.level > oldSkill.level;
-      });
-      leveledUpSkills.forEach((skill, index) => {
-        newLogs.push({
-          id: `${now}-skill-lvl-${index}`,
-          timestamp: now + 4.5 + index,
-          type: 'skill',
-          text: `技能升级！${skill.name} 达到了等级 ${skill.level}`
-        });
-      });
-      
-      if (newState.combatLogs && newState.combatLogs.length > 0) {
-        newState.combatLogs.forEach((log, index) => {
-          newLogs.push({
-            id: `${now}-combat-${index}`,
-            timestamp: now + 5 + index,
-            type: 'combat',
-            text: log
-          });
-        });
       }
-
-      // Add a generic event log for the story turn (optional, maybe too spammy, let's keep it clean)
-      // newLogs.push({
-      //   id: `${now}-event`,
-      //   timestamp: now + 10,
-      //   type: 'event',
-      //   text: '经历了一段新的遭遇。'
-      // });
-
-      newState.logs = [...(gameState.logs || []), ...newLogs];
-      
-      // Preserve the old memory while we update it asynchronously
-      newState.memory = gameState.memory || { summary: '', worldInfo: [] };
-      setGameState(newState);
-
-      // Asynchronously update memory
-      updateGameMemory(newState.memory, choice, newState.storyText)
-        .then(updatedMemory => {
-          setGameState(current => {
-            if (!current) return current;
-            return {
-              ...current,
-              memory: updatedMemory
-            };
-          });
-        })
-        .catch(err => {
-          console.error('Failed to update memory:', err);
-        });
 
     } catch (err: any) {
       setError(err.message || '生成下一回合失败');
