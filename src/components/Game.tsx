@@ -3,7 +3,6 @@ import { generateStoryTurn, updateGameMemory } from '../services/ai';
 import { GameState, LogEntry } from '../types';
 import { Sidebar } from './Sidebar';
 import { StoryView } from './StoryView';
-import { Chatbot } from './Chatbot';
 import { SettingsModal } from './SettingsModal';
 import { LogsModal } from './LogsModal';
 import { WorldbookModal } from './WorldbookModal';
@@ -446,7 +445,6 @@ export function Game() {
         </div>
       </main>
 
-      <Chatbot gameState={gameState} />
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <LogsModal isOpen={isLogsOpen} onClose={() => setIsLogsOpen(false)} logs={gameState?.logs || []} />
       <WorldbookModal

@@ -90,13 +90,31 @@ export const updateGameMemory = async (
   latestStory: string
 ): Promise<MemoryState> => {
   const settings = getSettings();
-  const systemInstruction = `You are the background world-building engine for a text-based RPG.
-Your task is to analyze the latest story turn and update the game's memory state.
+  const systemInstruction = `You are the background world-building and memory management engine for a text-based RPG.
+Your task is to analyze the latest story turn and meticulously update the game's memory state.
 
-RULES:
-1. Summary: If the latest story contains major events that push the main plot forward or change core states, condense them into the existing summary. If nothing major happened, keep the summary as is.
-2. World Info (Lorebook): If the story introduces new important NPCs, locations, items, or lore, create new lorebook entries for them. Extract 1-3 trigger keywords and write a short description.
-3. Keep the output concise and strictly in Simplified Chinese.`;
+=== 核心逻辑一：剧情摘要 (Summary) 的判断与更新 ===
+1. 评估阈值：判断最新剧情是否发生了以下“里程碑事件”：
+   - 跨越区域或进入新场景。
+   - 获得关键任务、完成任务或任务失败。
+   - 遭遇重要 Boss、角色濒死或触发奇迹。
+   - 揭露重大阴谋、重要 NPC 死亡或结盟。
+2. 执行更新：
+   - 【若是里程碑】：将新事件用极简的“起因+结果”概括，追加到原有的 summary 中。剔除具体的战斗数值或无意义的日常对话。
+   - 【若非里程碑】（如普通打怪、赶路、闲聊）：严格原样返回输入的 summary，绝对禁止做任何修改。
+
+=== 核心逻辑二：世界书 (worldInfo) 的自动提取与完善 ===
+1. 实体识别：扫描最新剧情，提取具有独特背景设定的专有名词（必须忽略普通铁剑、回复药水、村民A等通用词汇）。
+2. 词条生成与更新模板：如果发现符合条件的实体，提取其 1-3 个触发关键词（keywords），并严格按以下模板撰写内容（content）：
+   - 【道具/物品】：功能机制 + 外观描述 + 历史来历或隐藏副作用。（例如：“功能：抵挡致命一击。外观：布满裂纹的黑色护身符。来历：古老祭坛发现的诅咒之物。”）
+   - 【角色/NPC】：身份地位 + 核心性格或外貌特征 + 当前对玩家的态度。
+   - 【场景/地点】：环境特征 + 已知资源 + 潜在威胁。
+   - 【事件/派系】：核心理念/内容 + 对世界观或玩家的潜在影响。
+3. 状态覆盖：仔细对比传入的 Current Lorebook。如果最新剧情改变了已存在于 worldInfo 中的实体状态（例如某道具损坏、某 NPC 态度转变），你必须直接修改对应词条的 content，而不是新建词条。
+
+OUTPUT RULES:
+- Keep the output concise.
+- MUST be strictly in Simplified Chinese.`;
 
   const prompt = `Current Summary: ${currentMemory.summary || 'None'}
 Current Lorebook: ${currentMemory.worldInfo && currentMemory.worldInfo.length > 0 ? JSON.stringify(currentMemory.worldInfo) : 'None'}
@@ -192,6 +210,14 @@ export const generateStoryTurn = async (
   const systemInstruction = `You are an infinite choose-your-own-adventure game engine.
 The user is playing a text-based adventure.
 Continue the story based on the user's action. 
+
+STORY LENGTH & DETAIL (CRITICAL):
+- You MUST write rich, immersive, and detailed narratives.
+- Each turn's \`storyText\` MUST be at least 3 to 4 substantial paragraphs long (around 300-500 words).
+- Do NOT output brief or rushed summaries. Players want to read a novel-like experience.
+- Describe the environment, sensory details (sights, sounds, smells), the character's internal thoughts, and the exact flow of actions in vivid detail.
+- Expand on dialogues, combat maneuvers, and atmospheric tension.
+
 Update the inventory, skills, quests, npcStates, location, and stats (hp, maxHp, gold, level, exp, maxExp, skillPoints, attributes) if the story dictates it (e.g., taking damage, finding gold, leveling up, moving to a new area, learning a new skill).
 
 ACTION VALIDATION (CRITICAL - ANTI-CHEAT):
@@ -249,13 +275,15 @@ Provide 3-4 choices for the user's next action.
 TEXT FORMATTING & ANIMATIONS (CRITICAL):
 To make the story more immersive, you MUST FREQUENTLY use the following formatting tags in your storyText. Do NOT output plain text for important events.
 - Use **bold** for ALL important items, character names, or strong emphasis.
-- Use color tags for ALL elemental effects, damage, or specific moods. Available colors: [red], [blue], [green], [yellow], [purple], [indigo], [orange], [gold].
-- Use animation tags for ALL dynamic effects, injuries, or magical occurrences. Available animations: [wave], [shake], [glitch], [pulse].
+- Use color tags for ALL elemental effects, damage, or specific moods. Available colors: [red], [blue], [green], [yellow], [purple], [indigo], [orange], [gold], [cyan], [pink], [teal], [lime], [fuchsia], [rose], [sky], [amber], [gray], [white], [black].
+- Use animation tags for ALL dynamic effects, injuries, or magical occurrences. Available animations: [wave], [shake], [glitch], [pulse], [bounce], [spin], [float], [flicker], [glow].
   - Example: The dragon breathes a torrent of [wave][orange]scorching fire[/orange][/wave].
   - Example: You take [shake][red]15 damage[/red][/shake].
   - Example: A [glitch]mysterious voice[/glitch] echoes in your mind.
   - Example: The artifact begins to [pulse][blue]glow softly[/blue][/pulse].
   - Example: You found [gold]100枚金币[/gold]!
+  - Example: A [float][cyan]ghostly figure[/cyan][/float] appears.
+  - Example: The torch [flicker][orange]sputters in the wind[/orange][/flicker].
 You MUST combine colors and animations for maximum impact (e.g., [shake][red]...[/red][/shake]).
 
 ENEMY AI & COMBAT MECHANICS:
@@ -383,7 +411,7 @@ Current Attributes: Strength ${stats.attributes?.strength || 10}, Agility ${stat
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          storyText: { type: Type.STRING, description: 'The narrative text for this turn.' },
+          storyText: { type: Type.STRING, description: 'The narrative text for this turn. Must be highly detailed, immersive, and at least 3-4 paragraphs long.' },
           choices: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Options for the user.' },
           inventory: { type: Type.ARRAY, items: { type: Type.STRING }, description: 'Updated inventory.' },
           skills: { 
@@ -559,67 +587,4 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
     console.error("Failed to generate skill description", e);
     return "一种强大的能力，蕴含着未知的力量。";
   }
-};
-
-export const chatWithBot = async (history: ChatMessage[], message: string, gameState: GameState) => {
-  const settings = getSettings();
-  const systemInstruction = `You are a helpful guide and lore-master for the current text adventure game.
-Current Game State:
-Story: ${gameState.storyText}
-Inventory: ${gameState.inventory.join(', ')}
-Skills: ${gameState.skills?.map(s => s.name).join(', ') || 'None'}
-Quest: ${gameState.quests && gameState.quests.length > 0 ? gameState.quests.map(q => q.name).join(', ') : 'None'}
-Stats: HP ${gameState.stats.hp}/${gameState.stats.maxHp}, Gold ${gameState.stats.gold}, Level ${gameState.stats.level}, Skill Points ${gameState.stats.skillPoints || 0}
-
-Answer the user's questions about the world, their options, or give them hints. Keep it immersive.
-If the user is in combat, you can advise them on how to read enemy telegraphs, counter attack patterns, or handle fleeing enemies.
-IMPORTANT: You MUST reply in Simplified Chinese.`;
-
-  if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
-    const messages = [
-      { role: 'system', content: systemInstruction },
-      ...history.map(h => ({ role: h.role === 'model' ? 'assistant' : 'user', content: h.text })),
-      { role: 'user', content: message }
-    ];
-
-    const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
-      },
-      body: JSON.stringify({
-        model: settings.model || 'gpt-3.5-turbo',
-        messages: messages
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Custom API Error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.choices[0].message.content;
-  }
-
-  const ai = getAI();
-  const contents = history.map(h => ({
-    role: h.role,
-    parts: [{ text: h.text }]
-  }));
-  
-  contents.push({
-    role: 'user',
-    parts: [{ text: message }]
-  });
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.1-pro-preview',
-    contents: contents as any,
-    config: {
-      systemInstruction
-    }
-  });
-
-  return response.text || '';
 };
