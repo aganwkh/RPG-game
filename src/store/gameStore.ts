@@ -6,6 +6,7 @@ interface GameStore extends GameState {
   skillCooldowns: Record<string, number>;
   setGameState: (state: Partial<GameState> | ((state: GameState) => Partial<GameState>)) => void;
   addLog: (log: LogEntry) => void;
+  addRecentHistory: (history: { action: string, story: string }) => void;
   useSkill: (skillName: string) => void;
   decrementCooldowns: () => void;
   loadGame: (savedState: any) => void;
@@ -57,6 +58,11 @@ export const useGameStore = create<GameStore>((set) => ({
   addLog: (log) => set((state) => {
     const newLogs = [...(state.logs || []), log].slice(-50);
     return { logs: newLogs };
+  }),
+
+  addRecentHistory: (history) => set((state) => {
+    const newHistory = [...(state.recentHistory || []), history].slice(-10);
+    return { recentHistory: newHistory };
   }),
 
   useSkill: (skillName) => set((state) => {

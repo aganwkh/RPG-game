@@ -50,11 +50,14 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   if (updates.newSkills && Array.isArray(updates.newSkills)) {
     newState.skills = [...currentState.skills];
     updates.newSkills.forEach((skill: any) => {
-      const existingSkill = newState.skills.find(s => s.name === skill.name);
-      if (existingSkill) {
-        existingSkill.level = skill.level || existingSkill.level;
-        existingSkill.exp = skill.exp || existingSkill.exp;
-        existingSkill.maxLevel = skill.maxLevel || existingSkill.maxLevel;
+      const existingSkillIndex = newState.skills.findIndex(s => s.name === skill.name);
+      if (existingSkillIndex !== -1) {
+        newState.skills[existingSkillIndex] = {
+          ...newState.skills[existingSkillIndex],
+          level: skill.level || newState.skills[existingSkillIndex].level,
+          exp: skill.exp || newState.skills[existingSkillIndex].exp,
+          maxLevel: skill.maxLevel || newState.skills[existingSkillIndex].maxLevel
+        };
       } else {
         newState.skills.push({
           name: skill.name,
@@ -70,10 +73,13 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   if (updates.questUpdates && Array.isArray(updates.questUpdates)) {
     newState.quests = [...currentState.quests];
     updates.questUpdates.forEach((quest: any) => {
-      const existingQuest = newState.quests.find(q => q.id === quest.id);
-      if (existingQuest) {
-        existingQuest.step = quest.step !== undefined ? quest.step : existingQuest.step;
-        existingQuest.status = quest.status || existingQuest.status;
+      const existingQuestIndex = newState.quests.findIndex(q => q.id === quest.id);
+      if (existingQuestIndex !== -1) {
+        newState.quests[existingQuestIndex] = {
+          ...newState.quests[existingQuestIndex],
+          step: quest.step !== undefined ? quest.step : newState.quests[existingQuestIndex].step,
+          status: quest.status || newState.quests[existingQuestIndex].status
+        };
       } else {
         newState.quests.push({
           id: quest.id,
@@ -89,10 +95,13 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   if (updates.npcUpdates && Array.isArray(updates.npcUpdates)) {
     newState.npcStates = [...currentState.npcStates];
     updates.npcUpdates.forEach((npc: any) => {
-      const existingNpc = newState.npcStates.find(n => n.name === npc.name);
-      if (existingNpc) {
-        existingNpc.affinity = npc.affinity !== undefined ? npc.affinity : existingNpc.affinity;
-        existingNpc.isAlive = npc.isAlive !== undefined ? npc.isAlive : existingNpc.isAlive;
+      const existingNpcIndex = newState.npcStates.findIndex(n => n.name === npc.name);
+      if (existingNpcIndex !== -1) {
+        newState.npcStates[existingNpcIndex] = {
+          ...newState.npcStates[existingNpcIndex],
+          affinity: npc.affinity !== undefined ? npc.affinity : newState.npcStates[existingNpcIndex].affinity,
+          isAlive: npc.isAlive !== undefined ? npc.isAlive : newState.npcStates[existingNpcIndex].isAlive
+        };
       } else {
         newState.npcStates.push({
           name: npc.name,

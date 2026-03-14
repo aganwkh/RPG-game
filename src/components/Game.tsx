@@ -221,40 +221,29 @@ export function Game() {
       
       setGameState(prev => ({ ...prev, storyText: fullStory, choices }));
       
-      const updates = await extractStateUpdates(gameState, choice, fullStory);
-      setGameState(prev => {
-        const newState = applyStateUpdates(prev, updates);
-        
-        // Add choice log
-        const now = Date.now();
-        newState.logs = newState.logs || [];
-        newState.logs.push({
-          id: `${now}-choice`,
-          timestamp: now,
-          type: 'choice',
-          text: `你选择了: ${choice}`
-        });
-        
-        // Keep last 50 logs
-        newState.logs = newState.logs.slice(-50);
-        
-        // Update recent history
-        newState.recentHistory = newState.recentHistory || [];
-        newState.recentHistory.push({ action: choice, story: fullStory });
-        newState.recentHistory = newState.recentHistory.slice(-10);
-        
-        return newState;
+      const now = Date.now();
+      useGameStore.getState().addLog({
+        id: `${now}-choice`,
+        timestamp: now,
+        type: 'choice',
+        text: `你选择了: ${choice}`
       });
       
+      useGameStore.getState().addRecentHistory({ action: choice, story: fullStory });
+      
+      const updates = await extractStateUpdates(gameState, choice, fullStory);
+      setGameState(prev => applyStateUpdates(prev, updates));
+      
       // Asynchronously update memory every 5 turns
-      const choiceLogs = gameState.logs?.filter(l => l.type === 'choice') || [];
+      const currentState = useGameStore.getState();
+      const choiceLogs = currentState.logs?.filter(l => l.type === 'choice') || [];
       if (choiceLogs.length > 0 && choiceLogs.length % 5 === 0) {
         // Get the last 5 turns from recentHistory, or less if not available
-        const recentHistory = gameState.recentHistory || [];
+        const recentHistory = currentState.recentHistory || [];
         // Add the current turn to the history we pass to the AI
-        const historyToPass = [...recentHistory.slice(-4), { action: choice, story: fullStory }];
+        const historyToPass = [...recentHistory.slice(-5)];
         
-        updateGameMemory(gameState.memory || { summary: '', worldInfo: [] }, historyToPass)
+        updateGameMemory(currentState.memory || { summary: '', worldInfo: [] }, historyToPass)
           .then(updatedMemory => {
             setGameState(current => {
               return {
@@ -497,7 +486,7 @@ export function Game() {
         logs={gameState?.logs || []}
         onUpdateMemory={(newMemory) => {
           if (isGameStarted) {
-            setGameState({ ...gameState, memory: newMemory });
+            setGameState(prev => ({ ...prev, memory: newMemory }));
             showToast('世界书已更新');
           }
         }}
