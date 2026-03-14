@@ -307,9 +307,11 @@ export const generateStoryStream = async function* (
 Advance the story based on the player's action.
 Write 3-4 paragraphs of immersive, descriptive text.
 Include sensory details, character thoughts, and dynamic action.
-Use formatting tags like **bold**, [red], [wave].
+Use formatting tags frequently to highlight key elements, emotions, and actions.
 Available colors: [red], [blue], [green], [yellow], [purple], [indigo], [orange], [gold], [cyan], [pink], [teal], [lime], [fuchsia], [rose], [sky], [amber], [gray], [white], [black].
 Available animations: [wave], [shake], [glitch], [pulse], [bounce], [spin], [float], [flicker], [glow].
+Example: [red]鲜血[/red]四溅，大地开始[shake]剧烈震动[/shake]！
+You can also use Chinese translated tags like [红色], [震动], 【蓝色】, 【发光】.
 
 CRITICAL: At the very end of your response, you MUST provide 2-4 choices for the player, formatted exactly like this:
 CHOICES:

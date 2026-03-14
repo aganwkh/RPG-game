@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Loader2, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useGameStore } from '../store/gameStore';
@@ -77,8 +77,39 @@ const renderFormattedText = (text: string): React.ReactNode => {
   const stack: ASTNode[] = [root];
 
   let lastIndex = 0;
-  const tokenRegex = /(\[\/?\s*(?:red|blue|green|yellow|purple|indigo|orange|gold|cyan|pink|teal|lime|fuchsia|rose|sky|amber|gray|white|black|wave|shake|glitch|pulse|bounce|spin|float|flicker|glow)\s*\]|\*\*)/gi;
+  const tokenRegex = /([\[【]\/?\s*(?:red|blue|green|yellow|purple|indigo|orange|gold|cyan|pink|teal|lime|fuchsia|rose|sky|amber|gray|white|black|wave|shake|glitch|pulse|bounce|spin|float|flicker|glow|红色?|蓝色?|绿色?|黄色?|紫色?|靛蓝|橙色?|金色?|青色?|粉色?|蓝绿|青柠|紫红|玫瑰|天蓝|琥珀|灰色?|白色?|黑色?|波浪|震动|抖动|故障|脉冲|弹跳|旋转|漂浮|闪烁|发光)\s*[\]】]|\*\*)/gi;
   let match;
+
+  const colorMap: Record<string, string> = {
+    '红色': 'red', '红': 'red',
+    '蓝色': 'blue', '蓝': 'blue',
+    '绿色': 'green', '绿': 'green',
+    '黄色': 'yellow', '黄': 'yellow',
+    '紫色': 'purple', '紫': 'purple',
+    '靛蓝': 'indigo',
+    '橙色': 'orange', '橙': 'orange',
+    '金色': 'gold', '金': 'gold',
+    '青色': 'cyan', '青': 'cyan',
+    '粉色': 'pink', '粉': 'pink',
+    '蓝绿': 'teal',
+    '青柠': 'lime',
+    '紫红': 'fuchsia',
+    '玫瑰': 'rose',
+    '天蓝': 'sky',
+    '琥珀': 'amber',
+    '灰色': 'gray', '灰': 'gray',
+    '白色': 'white', '白': 'white',
+    '黑色': 'black', '黑': 'black',
+    '波浪': 'wave',
+    '震动': 'shake', '抖动': 'shake',
+    '故障': 'glitch',
+    '脉冲': 'pulse',
+    '弹跳': 'bounce',
+    '旋转': 'spin',
+    '漂浮': 'float',
+    '闪烁': 'flicker',
+    '发光': 'glow',
+  };
 
   while ((match = tokenRegex.exec(text)) !== null) {
     const textBefore = text.substring(lastIndex, match.index);
@@ -102,8 +133,9 @@ const renderFormattedText = (text: string): React.ReactNode => {
         stack[stack.length - 1].children.push(newNode);
         stack.push(newNode);
       }
-    } else if (token.startsWith('[/') || token.startsWith('[ /')) {
-      const tag = token.replace(/\[\/?\s*|\s*\]/g, '');
+    } else if (token.startsWith('[/') || token.startsWith('[ /') || token.startsWith('【/') || token.startsWith('【 /')) {
+      const rawTag = token.replace(/[\[【]\/?\s*|\s*[\]】]/g, '');
+      const tag = colorMap[rawTag] || rawTag;
       let foundIndex = -1;
       for (let i = stack.length - 1; i >= 1; i--) {
         if (stack[i].tag === tag) {
@@ -117,7 +149,8 @@ const renderFormattedText = (text: string): React.ReactNode => {
         // Ignore unmatched closing tags to prevent them from showing up as text
       }
     } else {
-      const tag = token.replace(/\[\s*|\s*\]/g, '');
+      const rawTag = token.replace(/[\[【]\s*|\s*[\]】]/g, '');
+      const tag = colorMap[rawTag] || rawTag;
       const isAnim = ['wave', 'shake', 'glitch', 'pulse', 'bounce', 'spin', 'float', 'flicker', 'glow'].includes(tag);
       const newNode: ASTNode = { type: isAnim ? 'anim' : 'color', tag, children: [] };
       stack[stack.length - 1].children.push(newNode);
@@ -189,61 +222,28 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
   const location = useGameStore(state => state.location);
   const choices = useGameStore(state => state.choices);
   const isGameOver = useGameStore(state => state.isGameOver);
-  const [displayedText, setDisplayedText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-
-  useEffect(() => {
-    let currentText = '';
-    let currentIndex = 0;
-    setIsTyping(true);
-    setDisplayedText('');
-
-    const intervalId = setInterval(() => {
-      if (currentIndex < storyText.length) {
-        currentText += storyText[currentIndex];
-        setDisplayedText(currentText);
-        currentIndex++;
-      } else {
-        setIsTyping(false);
-        clearInterval(intervalId);
-      }
-    }, 30); // 30ms per character for a smooth reading pace
-
-    return () => clearInterval(intervalId);
-  }, [storyText]);
-
-  const handleSkipTyping = () => {
-    if (isTyping) {
-      setDisplayedText(storyText);
-      setIsTyping(false);
-    }
-  };
 
   return (
     <div className="flex flex-col gap-8">
       <AnimatePresence mode="wait">
         <motion.div 
-          key={storyText}
-          initial={{ opacity: 0, scale: 0.98, y: 10, filter: 'blur(4px)' }}
+          initial={{ opacity: 0, scale: 0.98, y: 10 }}
           animate={{ 
-            opacity: isLoading ? 0.4 : 1, 
+            opacity: 1, 
             scale: 1, 
             y: 0,
-            filter: isLoading ? 'blur(2px)' : 'blur(0px)'
           }}
-          exit={{ opacity: 0, scale: 0.98, y: -10, filter: 'blur(4px)' }}
+          exit={{ opacity: 0, scale: 0.98, y: -10 }}
           transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="flex flex-col gap-8"
         >
           {/* Story Text */}
           <div 
-            className="prose prose-invert max-w-none cursor-pointer"
-            onClick={handleSkipTyping}
-            title={isTyping ? "点击跳过打字动画" : ""}
+            className="prose prose-invert max-w-none"
           >
             <p className="story-text min-h-[4rem] drop-shadow-md">
-              {renderFormattedText(displayedText)}
-              {isTyping && <span className="inline-block w-2 h-5 ml-1 bg-indigo-500/80 animate-pulse align-middle shadow-[0_0_8px_rgba(99,102,241,0.8)]" />}
+              {renderFormattedText(storyText)}
+              {isLoading && <span className="inline-block w-2 h-5 ml-1 bg-indigo-500/80 animate-pulse align-middle shadow-[0_0_8px_rgba(99,102,241,0.8)]" />}
             </p>
           </div>
 
@@ -251,16 +251,16 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
           <motion.div 
             className="grid grid-cols-1 gap-4 mt-8"
             initial={{ opacity: 0 }}
-            animate={{ opacity: isTyping ? 0 : 1 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
             {isGameOver ? (
               <motion.button
                 onClick={onRestart}
-                disabled={isLoading || isTyping}
+                disabled={isLoading}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ duration: 0.4, delay: isTyping ? 0 : 0.5 }}
+                transition={{ duration: 0.4, delay: 0.5 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 className="text-center px-6 py-5 md:px-8 glass-panel rounded-2xl bg-red-500/10 hover:bg-red-500/20 active:bg-red-500/20 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden border border-red-500/30 hover:border-red-500/50 active:border-red-500/50 hover:shadow-[0_0_20px_rgba(239,68,68,0.2)] flex items-center justify-center"
@@ -273,10 +273,10 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
                 <motion.button
                   key={idx}
                   onClick={() => onChoice(choice)}
-                  disabled={isLoading || isTyping}
+                  disabled={isLoading}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.4, delay: idx * 0.15 + (isTyping ? 0 : 0.5) }}
+                  transition={{ duration: 0.4, delay: idx * 0.15 + 0.5 }}
                   whileHover={{ scale: 1.02, x: 5 }}
                   whileTap={{ scale: 0.98 }}
                   className="text-left px-6 py-5 md:px-8 glass-panel rounded-2xl hover:bg-white/10 active:bg-white/10 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group relative overflow-hidden border border-white/5 hover:border-indigo-500/30 active:border-indigo-500/30 hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] flex items-center justify-between"
