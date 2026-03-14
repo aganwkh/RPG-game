@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Backpack, Scroll, User, Settings, Save, Download, Heart, Coins, Star, Loader2, X, MapPin, Compass, BookOpen, Zap, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
+import { Backpack, Scroll, User, Settings, Save, Download, Upload, Heart, Coins, Star, Loader2, X, MapPin, Compass, BookOpen, Zap, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
 import { CharacterStats, Skill, Quest, NpcState } from '../types';
 import { generateItemDescription, generateSkillDescription } from '../services/ai';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,13 +17,15 @@ interface SidebarProps {
   onOpenLogs: () => void;
   onSave: () => void;
   onLoad: () => void;
+  onExport: () => void;
+  onImport: () => void;
   onNewGame: () => void;
   onUseSkill: (skill: string) => void;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, location, stats, onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, location, stats, onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
   const [itemDescriptions, setItemDescriptions] = useState<Record<string, string>>({});
   const [skillDescriptions, setSkillDescriptions] = useState<Record<string, string>>({});
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -738,6 +740,24 @@ export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, 
           >
             <Download className="w-4 h-4" />
             <span className="text-sm font-medium tracking-wide">加载</span>
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button 
+            onClick={onExport}
+            className="flex-1 flex items-center justify-center gap-2 text-zinc-400 hover:text-purple-400 transition-all duration-300 p-3 rounded-xl hover:bg-white/10 border border-transparent hover:border-purple-400/30"
+            title="导出存档"
+          >
+            <Download className="w-4 h-4 rotate-180" />
+            <span className="text-sm font-medium tracking-wide">导出</span>
+          </button>
+          <button 
+            onClick={onImport}
+            className="flex-1 flex items-center justify-center gap-2 text-zinc-400 hover:text-orange-400 transition-all duration-300 p-3 rounded-xl hover:bg-white/10 border border-transparent hover:border-orange-400/30"
+            title="导入存档"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-sm font-medium tracking-wide">导入</span>
           </button>
         </div>
         <button 

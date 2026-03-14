@@ -111,10 +111,53 @@ export function Game() {
     }
   };
 
-  // Initial load
-  useEffect(() => {
-    startGame();
-  }, []);
+  const exportSave = () => {
+    if (gameState) {
+      try {
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameState));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", `chronicles_save_${new Date().getTime()}.json`);
+        document.body.appendChild(downloadAnchorNode);
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+        showToast('存档已导出');
+        setIsSidebarOpen(false);
+      } catch (err) {
+        console.error('Failed to export save:', err);
+        showToast('导出存档失败');
+      }
+    }
+  };
+
+  const importSave = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e: any) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const content = event.target?.result as string;
+          const parsed = JSON.parse(content);
+          if (parsed && parsed.stats && parsed.memory) {
+            setGameState(parsed);
+            showToast('存档已导入');
+            setIsSidebarOpen(false);
+          } else {
+            showToast('导入失败：无效的存档文件');
+          }
+        } catch (err) {
+          console.error('Failed to import save:', err);
+          showToast('导入存档失败：文件格式错误');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
 
   // Handle body scroll lock on mobile when sidebar is open
   useEffect(() => {
@@ -238,6 +281,66 @@ export function Game() {
     );
   }
 
+  if (!gameState && !isLoading && !error) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center relative p-6">
+        <div className="atmosphere-bg" />
+        <div className="z-10 text-center max-w-2xl w-full">
+          <h1 className="text-5xl md:text-7xl font-serif font-bold text-zinc-100 mb-6 tracking-wider drop-shadow-2xl">
+            编年史
+          </h1>
+          <p className="text-zinc-400 font-serif italic text-lg md:text-xl mb-12 max-w-md mx-auto leading-relaxed">
+            一个由人工智能驱动的无尽文字冒险游戏。你的每一个选择，都将重塑这个世界的命运。
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={startGame}
+              className="px-8 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium transition-all shadow-lg shadow-indigo-500/20 text-lg"
+            >
+              开始新冒险
+            </button>
+            <button
+              onClick={loadGame}
+              className="px-8 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl font-medium transition-all border border-white/10 text-lg"
+            >
+              继续游戏
+            </button>
+            <button
+              onClick={importSave}
+              className="px-8 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl font-medium transition-all border border-white/10 text-lg"
+            >
+              导入存档
+            </button>
+          </div>
+          <div className="mt-12">
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm underline underline-offset-4"
+            >
+              API 设置
+            </button>
+          </div>
+        </div>
+        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        
+        {/* Toast Notification */}
+        <AnimatePresence>
+          {toastMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 50, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.9 }}
+              className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-zinc-800 border border-white/10 text-zinc-200 px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3"
+            >
+              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              {toastMessage}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
   if (error && !gameState) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 relative">
@@ -301,6 +404,8 @@ export function Game() {
         onOpenLogs={() => { setIsLogsOpen(true); setIsSidebarOpen(false); }}
         onSave={saveGame}
         onLoad={loadGame}
+        onExport={exportSave}
+        onImport={importSave}
         onNewGame={startGame}
         onUseSkill={handleUseSkill}
         isOpen={isSidebarOpen}
