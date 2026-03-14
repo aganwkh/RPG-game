@@ -80,6 +80,7 @@ export interface GameState {
   memory?: MemoryState;
   logs?: LogEntry[];
   combatLogs?: string[];
+  recentHistory?: { action: string, story: string }[];
 }
 
 export interface ChatMessage {

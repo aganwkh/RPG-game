@@ -49,7 +49,8 @@ export function Game() {
           timestamp: Date.now(),
           type: 'system',
           text: '冒险开始了...'
-        }]
+        }],
+        recentHistory: []
       };
       
       setGameState(initialState);
@@ -230,13 +231,23 @@ export function Game() {
         // Keep last 50 logs
         newState.logs = newState.logs.slice(-50);
         
+        // Update recent history
+        newState.recentHistory = newState.recentHistory || [];
+        newState.recentHistory.push({ action: choice, story: fullStory });
+        newState.recentHistory = newState.recentHistory.slice(-10);
+        
         return newState;
       });
       
       // Asynchronously update memory every 5 turns
       const choiceLogs = gameState.logs?.filter(l => l.type === 'choice') || [];
       if (choiceLogs.length > 0 && choiceLogs.length % 5 === 0) {
-        updateGameMemory(gameState.memory || { summary: '', worldInfo: [] }, choice, fullStory)
+        // Get the last 5 turns from recentHistory, or less if not available
+        const recentHistory = gameState.recentHistory || [];
+        // Add the current turn to the history we pass to the AI
+        const historyToPass = [...recentHistory.slice(-4), { action: choice, story: fullStory }];
+        
+        updateGameMemory(gameState.memory || { summary: '', worldInfo: [] }, historyToPass)
           .then(updatedMemory => {
             setGameState(current => {
               if (!current) return current;

@@ -131,12 +131,11 @@ Generate the updated summary.`;
 
 export const updateGameMemory = async (
   currentMemory: MemoryState,
-  latestAction: string,
-  latestStory: string
+  recentHistory: { action: string, story: string }[]
 ): Promise<MemoryState> => {
   const settings = getSettings();
   const systemInstruction = `You are the background world-building and memory management engine for a text-based RPG.
-Your task is to analyze the latest story turn and meticulously update the game's memory state.
+Your task is to analyze the recent story history and meticulously update the game's memory state.
 
 === 核心逻辑一：剧情摘要 (Summary) 的判断与更新 ===
 1. 评估阈值：判断最新剧情是否发生了以下“里程碑事件”：
@@ -149,25 +148,53 @@ Your task is to analyze the latest story turn and meticulously update the game's
    - 【若非里程碑】（如普通打怪、赶路、闲聊）：严格原样返回输入的 summary，绝对禁止做任何修改。
 
 === 核心逻辑二：世界书 (worldInfo) 的自动提取与完善 ===
-1. 实体识别：扫描最新剧情，提取具有独特背景设定的专有名词（必须忽略普通铁剑、回复药水、村民A等通用词汇）。
+1. 实体识别：扫描最近的剧情，提取具有独特背景设定的专有名词（必须忽略普通铁剑、回复药水、村民A等通用词汇）。
 2. 词条生成与更新模板：如果发现符合条件的实体，提取其 1-3 个触发关键词（keywords），并严格按以下模板撰写内容（content）：
    - 【道具/物品】：功能机制 + 外观描述 + 历史来历或隐藏副作用。（例如：“功能：抵挡致命一击。外观：布满裂纹的黑色护身符。来历：古老祭坛发现的诅咒之物。”）
    - 【角色/NPC】：身份地位 + 核心性格或外貌特征 + 当前对玩家的态度。
    - 【场景/地点】：环境特征 + 已知资源 + 潜在威胁。
    - 【事件/派系】：核心理念/内容 + 对世界观或玩家的潜在影响。
-3. 状态覆盖：仔细对比传入的 Current Lorebook。如果最新剧情改变了已存在于 worldInfo 中的实体状态（例如某道具损坏、某 NPC 态度转变），你必须直接修改对应词条的 content，而不是新建词条。
+3. 状态覆盖：仔细对比传入的 Relevant Current Lorebook Entries。如果最新剧情改变了这些实体的状态（例如某道具损坏、某 NPC 态度转变），你必须返回修改后的词条。
+4. 增量更新：你只需要返回**发生状态改变的旧词条**以及**全新提取的新词条**。**绝对不要**返回没有发生变化的旧词条。
 
 OUTPUT RULES:
 - Keep the output concise.
 - MUST be strictly in Simplified Chinese.`;
 
+  const historyText = recentHistory.map(h => `Action: ${h.action}\nStory: ${h.story}`).join('\n\n');
+
+  // Retrieve relevant lorebook entries using RAG
+  let relevantWorldbook: any[] = [];
+  if (currentMemory.worldInfo && currentMemory.worldInfo.length > 0) {
+    try {
+      const historyEmbedding = await getEmbedding(historyText.slice(-1000));
+      const scoredEntries = currentMemory.worldInfo.map(entry => {
+        const score = entry.embedding ? cosineSimilarity(historyEmbedding, entry.embedding) : 0;
+        return { entry, score };
+      });
+      relevantWorldbook = scoredEntries
+        .filter(item => item.score >= 0.4)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10)
+        .map(item => item.entry);
+    } catch (err) {
+      console.error("Failed to retrieve embeddings for memory update:", err);
+      // Fallback to keyword matching
+      relevantWorldbook = currentMemory.worldInfo.filter(entry => 
+        entry.keywords.some(key => historyText.includes(key))
+      ).slice(0, 10);
+    }
+  }
+
   const prompt = `Current Summary: ${currentMemory.summary || 'None'}
-Current Lorebook: ${currentMemory.worldInfo && currentMemory.worldInfo.length > 0 ? JSON.stringify(currentMemory.worldInfo) : 'None'}
+Relevant Current Lorebook Entries: ${relevantWorldbook.length > 0 ? JSON.stringify(relevantWorldbook.map(e => ({ keywords: e.keywords, content: e.content }))) : 'None'}
 
-Latest Action: ${latestAction}
-Latest Story: ${latestStory}
+Recent 5 Turns History:
+${historyText}
 
-Analyze the latest turn and return the updated MemoryState.`;
+Analyze the recent history. 
+1. Update the Summary if milestone events occurred.
+2. Return the UPDATED Relevant Lorebook Entries (if their state changed) PLUS any completely NEW entries. Do NOT return entries that did not change.`;
 
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
@@ -241,17 +268,41 @@ Analyze the latest turn and return the updated MemoryState.`;
     parsedMemory = parseJSONResponse(response.text || '{}');
   }
   
+  // Merge AI output with existing memory
+  const updatedWorldInfo = [...(currentMemory.worldInfo || [])];
+  
+  if (parsedMemory.worldInfo && Array.isArray(parsedMemory.worldInfo)) {
+    for (const newEntry of parsedMemory.worldInfo) {
+      if (!newEntry.content || newEntry.content.trim() === '') continue;
+      
+      // Find if it's an update to an existing entry (check for keyword overlap)
+      const existingIndex = updatedWorldInfo.findIndex(existing => 
+        existing.keywords.some(k => newEntry.keywords.includes(k))
+      );
+      
+      if (existingIndex >= 0) {
+        // Update existing
+        updatedWorldInfo[existingIndex] = {
+          ...updatedWorldInfo[existingIndex],
+          keywords: newEntry.keywords,
+          content: newEntry.content,
+          embedding: undefined // Clear embedding so it gets regenerated
+        };
+      } else {
+        // Add new
+        updatedWorldInfo.push(newEntry);
+      }
+    }
+  }
+  
+  parsedMemory.worldInfo = updatedWorldInfo;
+  
   // Generate embeddings for new or changed worldInfo entries
   if (parsedMemory.worldInfo && Array.isArray(parsedMemory.worldInfo)) {
     parsedMemory.worldInfo = await Promise.all(
       parsedMemory.worldInfo.map(async (entry: any) => {
-        const existingEntry = currentMemory.worldInfo?.find(e => e.content === entry.content);
-        if (existingEntry && existingEntry.embedding) {
-          return { ...entry, embedding: existingEntry.embedding };
-        }
-        if (!entry.content || entry.content.trim() === '') {
-          return entry;
-        }
+        if (entry.embedding) return entry; // Already has embedding
+        
         try {
           const embedding = await getEmbedding(entry.content);
           return { ...entry, embedding };
