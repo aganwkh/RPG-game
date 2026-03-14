@@ -3,6 +3,7 @@ import { Backpack, Scroll, User, Settings, Save, Download, Upload, Heart, Coins,
 import { CharacterStats, Skill, Quest, NpcState } from '../types';
 import { generateItemDescription, generateSkillDescription } from '../services/ai';
 import { motion, AnimatePresence } from 'motion/react';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { useGameStore } from '../store/gameStore';
 
 interface SidebarProps {
@@ -79,18 +80,21 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
 
   // Load saved descriptions on mount
   useEffect(() => {
-    try {
-      const savedItems = localStorage.getItem('item_descriptions');
-      if (savedItems) {
-        setItemDescriptions(JSON.parse(savedItems));
+    const loadDescriptions = async () => {
+      try {
+        const savedItems = await idbGet('item_descriptions');
+        if (savedItems) {
+          setItemDescriptions(savedItems);
+        }
+        const savedSkills = await idbGet('skill_descriptions');
+        if (savedSkills) {
+          setSkillDescriptions(savedSkills);
+        }
+      } catch (e) {
+        console.error("Failed to load descriptions", e);
       }
-      const savedSkills = localStorage.getItem('skill_descriptions');
-      if (savedSkills) {
-        setSkillDescriptions(JSON.parse(savedSkills));
-      }
-    } catch (e) {
-      console.error("Failed to load descriptions", e);
-    }
+    };
+    loadDescriptions();
   }, []);
 
   // Fetch description when an item is hovered if we don't have it
@@ -108,7 +112,7 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
       
       setItemDescriptions(prev => {
         const next = { ...prev, [item]: desc };
-        localStorage.setItem('item_descriptions', JSON.stringify(next));
+        idbSet('item_descriptions', next).catch(e => console.error("Failed to save item descriptions", e));
         return next;
       });
     } catch (e) {
@@ -137,7 +141,7 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
       
       setSkillDescriptions(prev => {
         const next = { ...prev, [skillName]: desc };
-        localStorage.setItem('skill_descriptions', JSON.stringify(next));
+        idbSet('skill_descriptions', next).catch(e => console.error("Failed to save skill descriptions", e));
         return next;
       });
     } catch (e) {

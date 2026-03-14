@@ -61,7 +61,7 @@ export const useGameStore = create<GameStore>((set) => ({
   }),
 
   addRecentHistory: (history) => set((state) => {
-    const newHistory = [...(state.recentHistory || []), history].slice(-10);
+    const newHistory = [...(state.recentHistory || []), history].slice(-20);
     return { recentHistory: newHistory };
   }),
 

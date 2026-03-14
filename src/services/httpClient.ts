@@ -76,7 +76,7 @@ export const customApiFetch = async (
 export const customApiFetchStream = async (
   endpoint: string,
   body: any,
-  options: { isBackground?: boolean } = {}
+  options: { isBackground?: boolean, signal?: AbortSignal } = {}
 ): Promise<Response> => {
   const settings = getSettings();
   const provider = options.isBackground ? (settings.bgProvider || settings.provider) : settings.provider;
@@ -102,7 +102,8 @@ export const customApiFetchStream = async (
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`
     },
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    signal: options.signal
   });
 
   if (!response.ok) {

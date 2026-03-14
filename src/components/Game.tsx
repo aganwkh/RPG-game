@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { generateStoryStream, extractStateUpdates, updateGameMemory } from '../services/ai';
 import { applyStateUpdates } from '../services/stateReducer';
+import { backgroundTaskQueue } from '../services/taskQueue';
 import { GameState, LogEntry } from '../types';
 import { Sidebar } from './Sidebar';
 import { StoryView } from './StoryView';
@@ -9,6 +10,7 @@ import { LogsModal } from './LogsModal';
 import { WorldbookModal } from './WorldbookModal';
 import { Loader2, Menu, MapPin, Heart, Coins, Scroll } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { useGameStore } from '../store/gameStore';
 
 export function Game() {
@@ -91,10 +93,19 @@ export function Game() {
     }
   };
 
-  const saveGame = () => {
+  const saveGame = async () => {
     if (isGameStarted) {
       try {
-        localStorage.setItem('saved_game_state', JSON.stringify(gameState));
+        // Strip functions before saving to IndexedDB (structured clone doesn't support functions)
+        const stateToSave = { ...gameState };
+        delete (stateToSave as any).setGameState;
+        delete (stateToSave as any).addLog;
+        delete (stateToSave as any).addRecentHistory;
+        delete (stateToSave as any).useSkill;
+        delete (stateToSave as any).decrementCooldowns;
+        delete (stateToSave as any).loadGame;
+        
+        await idbSet('saved_game_state', stateToSave);
         showToast('游戏已手动保存');
         setIsSidebarOpen(false);
       } catch (err) {
@@ -104,11 +115,11 @@ export function Game() {
     }
   };
 
-  const loadGame = () => {
+  const loadGame = async () => {
     try {
-      const savedState = localStorage.getItem('saved_game_state');
+      const savedState = await idbGet('saved_game_state');
       if (savedState) {
-        useGameStore.getState().loadGame(JSON.parse(savedState));
+        useGameStore.getState().loadGame(savedState);
         setIsGameStarted(true);
         showToast('已加载手动存档');
         setIsSidebarOpen(false);
@@ -124,7 +135,15 @@ export function Game() {
   const exportSave = () => {
     if (isGameStarted) {
       try {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameState));
+        const stateToExport = { ...gameState };
+        delete (stateToExport as any).setGameState;
+        delete (stateToExport as any).addLog;
+        delete (stateToExport as any).addRecentHistory;
+        delete (stateToExport as any).useSkill;
+        delete (stateToExport as any).decrementCooldowns;
+        delete (stateToExport as any).loadGame;
+
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stateToExport));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
         downloadAnchorNode.setAttribute("download", `chronicles_save_${new Date().getTime()}.json`);
@@ -187,6 +206,9 @@ export function Game() {
     setIsLoading(true);
     setError(null);
     
+    // Save previous state to restore on error
+    const previousState = { ...gameState };
+    
     // Check if the choice uses any skills and put them on cooldown
     if (gameState.skills) {
       const usedSkills = gameState.skills.filter(skill => choice.includes(skill.name));
@@ -231,19 +253,29 @@ export function Game() {
       
       useGameStore.getState().addRecentHistory({ action: choice, story: fullStory });
       
-      const updates = await extractStateUpdates(gameState, choice, fullStory);
+      const updates = await backgroundTaskQueue.enqueue(() => extractStateUpdates(gameState, choice, fullStory));
       setGameState(prev => applyStateUpdates(prev, updates));
       
       // Asynchronously update memory every 5 turns
       const currentState = useGameStore.getState();
       const choiceLogs = currentState.logs?.filter(l => l.type === 'choice') || [];
       if (choiceLogs.length > 0 && choiceLogs.length % 5 === 0) {
-        // Get the last 5 turns from recentHistory, or less if not available
         const recentHistory = currentState.recentHistory || [];
-        // Add the current turn to the history we pass to the AI
-        const historyToPass = [...recentHistory.slice(-5)];
         
-        updateGameMemory(currentState.memory || { summary: '', worldInfo: [] }, historyToPass)
+        // Token budget control: Truncate history by character length (max 2000 chars)
+        const historyToPass = [];
+        let currentLength = 0;
+        for (let i = recentHistory.length - 1; i >= 0; i--) {
+          const entry = recentHistory[i];
+          const entryLength = entry.action.length + entry.story.length;
+          if (currentLength + entryLength > 2000 && historyToPass.length > 0) {
+            break;
+          }
+          historyToPass.unshift(entry);
+          currentLength += entryLength;
+        }
+        
+        backgroundTaskQueue.enqueue(() => updateGameMemory(currentState.memory || { summary: '', worldInfo: [] }, historyToPass))
           .then(updatedMemory => {
             setGameState(current => {
               return {
@@ -259,6 +291,12 @@ export function Game() {
 
     } catch (err: any) {
       setError(err.message || '生成下一回合失败');
+      // Restore previous state so user can retry
+      setGameState(prev => ({
+        ...prev,
+        choices: previousState.choices,
+        storyText: previousState.storyText
+      }));
     } finally {
       setIsLoading(false);
     }

@@ -323,42 +323,58 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
   const context = await buildOptimizedContext(gameState, action, systemInstruction);
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
-    const response = await customApiFetchStream('/chat/completions', {
-      messages: [
-        { role: 'system', content: systemInstruction },
-        { role: 'user', content: context + `\n\nPlayer Action: ${action}` }
-      ],
-      stream: true
-    });
+    const abortController = new AbortController();
+    let watchdogTimer: any;
 
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder('utf-8');
-    
-    if (reader) {
-      let buffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        
-        // Keep the last line in the buffer if it's not complete
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ') && line.trim() !== 'data: [DONE]') {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
-                yield data.choices[0].delta.content;
+    const resetWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => {
+        abortController.abort(new Error('网络中断，请重试'));
+      }, 10000);
+    };
+
+    try {
+      resetWatchdog();
+      const response = await customApiFetchStream('/chat/completions', {
+        messages: [
+          { role: 'system', content: systemInstruction },
+          { role: 'user', content: context + `\n\nPlayer Action: ${action}` }
+        ],
+        stream: true
+      }, { signal: abortController.signal });
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder('utf-8');
+      
+      if (reader) {
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          resetWatchdog();
+          if (done) break;
+          
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          
+          // Keep the last line in the buffer if it's not complete
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ') && line.trim() !== 'data: [DONE]') {
+              try {
+                const data = JSON.parse(line.slice(6));
+                if (data.choices && data.choices[0].delta && data.choices[0].delta.content) {
+                  yield data.choices[0].delta.content;
+                }
+              } catch (e) {
+                // ignore parse errors for incomplete chunks
               }
-            } catch (e) {
-              // ignore parse errors for incomplete chunks
             }
           }
         }
       }
+    } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
     }
     return;
   }

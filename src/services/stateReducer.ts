@@ -123,6 +123,7 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
         text: log.text
       });
     });
+    newState.logs = newState.logs.slice(-50);
   }
 
   // Apply game over

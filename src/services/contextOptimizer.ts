@@ -69,5 +69,23 @@ Location: ${gameState.location || 'Unknown'}
     context += `[NPCs (Nearby/Relevant)]\n${relevantNpcs.map(n => `${n.name}: Affinity ${n.affinity}, Alive: ${n.isAlive}`).join('\n')}\n\n`;
   }
 
+  // 5. Recent History (Token budget control: max 2000 chars)
+  let historyContext = '';
+  if (gameState.recentHistory && gameState.recentHistory.length > 0) {
+    let currentLength = 0;
+    const historyEntries = [];
+    for (let i = gameState.recentHistory.length - 1; i >= 0; i--) {
+      const entry = gameState.recentHistory[i];
+      const entryText = `Action: ${entry.action}\nStory: ${entry.story}`;
+      if (currentLength + entryText.length > 2000 && historyEntries.length > 0) {
+        break;
+      }
+      historyEntries.unshift(entryText);
+      currentLength += entryText.length;
+    }
+    historyContext = `[RECENT HISTORY]\n${historyEntries.join('\n\n')}\n\n`;
+  }
+  context += historyContext;
+
   return context;
 }
