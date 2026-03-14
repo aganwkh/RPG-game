@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { GameState } from '../types';
 import { Loader2, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useGameStore } from '../store/gameStore';
 
 interface StoryViewProps {
-  gameState: GameState;
   onChoice: (choice: string) => void;
   onRestart: () => void;
   isLoading: boolean;
@@ -185,7 +184,11 @@ const renderFormattedText = (text: string): React.ReactNode => {
   return <>{root.children.map((child, i) => renderNode(child, i))}</>;
 };
 
-export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryViewProps) {
+export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
+  const storyText = useGameStore(state => state.storyText);
+  const location = useGameStore(state => state.location);
+  const choices = useGameStore(state => state.choices);
+  const isGameOver = useGameStore(state => state.isGameOver);
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
@@ -196,8 +199,8 @@ export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryVi
     setDisplayedText('');
 
     const intervalId = setInterval(() => {
-      if (currentIndex < gameState.storyText.length) {
-        currentText += gameState.storyText[currentIndex];
+      if (currentIndex < storyText.length) {
+        currentText += storyText[currentIndex];
         setDisplayedText(currentText);
         currentIndex++;
       } else {
@@ -207,11 +210,11 @@ export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryVi
     }, 30); // 30ms per character for a smooth reading pace
 
     return () => clearInterval(intervalId);
-  }, [gameState.storyText]);
+  }, [storyText]);
 
   const handleSkipTyping = () => {
     if (isTyping) {
-      setDisplayedText(gameState.storyText);
+      setDisplayedText(storyText);
       setIsTyping(false);
     }
   };
@@ -220,7 +223,7 @@ export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryVi
     <div className="flex flex-col gap-8">
       <AnimatePresence mode="wait">
         <motion.div 
-          key={gameState.storyText}
+          key={storyText}
           initial={{ opacity: 0, scale: 0.98, y: 10, filter: 'blur(4px)' }}
           animate={{ 
             opacity: isLoading ? 0.4 : 1, 
@@ -251,7 +254,7 @@ export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryVi
             animate={{ opacity: isTyping ? 0 : 1 }}
             transition={{ duration: 0.5 }}
           >
-            {gameState.isGameOver ? (
+            {isGameOver ? (
               <motion.button
                 onClick={onRestart}
                 disabled={isLoading || isTyping}
@@ -266,7 +269,7 @@ export function StoryView({ gameState, onChoice, onRestart, isLoading }: StoryVi
                 <span className="text-red-200 font-serif text-base md:text-lg tracking-wide group-hover:text-white group-active:text-white transition-colors relative z-10 font-bold">重新开始冒险</span>
               </motion.button>
             ) : (
-              gameState.choices.map((choice, idx) => (
+              choices.map((choice, idx) => (
                 <motion.button
                   key={idx}
                   onClick={() => onChoice(choice)}

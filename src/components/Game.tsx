@@ -9,9 +9,15 @@ import { LogsModal } from './LogsModal';
 import { WorldbookModal } from './WorldbookModal';
 import { Loader2, Menu, MapPin, Heart, Coins, Scroll } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useGameStore } from '../store/gameStore';
 
 export function Game() {
-  const [gameState, setGameState] = useState<GameState | null>(null);
+  const gameState = useGameStore();
+  const setGameState = useGameStore(state => state.setGameState);
+  const skillCooldowns = useGameStore(state => state.skillCooldowns);
+  const setSkillCooldowns = useGameStore(state => state.useSkill); // Wait, useSkill takes skillName. I'll just use setGameState to update it if needed, or use the store's action.
+  
+  const [isGameStarted, setIsGameStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -19,7 +25,6 @@ export function Game() {
   const [isWorldbookOpen, setIsWorldbookOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [skillCooldowns, setSkillCooldowns] = useState<Record<string, number>>({});
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -32,6 +37,7 @@ export function Game() {
     setIsSidebarOpen(false);
     try {
       const initialState: GameState = {
+        version: gameState.version,
         storyText: '',
         choices: [],
         inventory: [],
@@ -54,12 +60,13 @@ export function Game() {
       };
       
       setGameState(initialState);
+      setIsGameStarted(true);
       
       let fullStory = '';
       const stream = generateStoryStream(initialState, '在一个奇幻世界中开始新的冒险。');
       for await (const chunk of stream) {
         fullStory += chunk;
-        setGameState(prev => prev ? { ...prev, storyText: fullStory } : null);
+        setGameState(prev => ({ ...prev, storyText: fullStory }));
       }
       
       // Parse choices
@@ -70,21 +77,22 @@ export function Game() {
         fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
       }
       
-      setGameState(prev => prev ? { ...prev, storyText: fullStory, choices } : null);
+      setGameState(prev => ({ ...prev, storyText: fullStory, choices }));
       
       const updates = await extractStateUpdates(initialState, '在一个奇幻世界中开始新的冒险。', fullStory);
-      setGameState(prev => prev ? applyStateUpdates(prev, updates) : null);
+      setGameState(prev => applyStateUpdates(prev, updates));
       
       showToast('新冒险已开始');
     } catch (err: any) {
       setError(err.message || '启动游戏失败');
+      setIsGameStarted(false);
     } finally {
       setIsLoading(false);
     }
   };
 
   const saveGame = () => {
-    if (gameState) {
+    if (isGameStarted) {
       try {
         localStorage.setItem('saved_game_state', JSON.stringify(gameState));
         showToast('游戏已手动保存');
@@ -100,7 +108,8 @@ export function Game() {
     try {
       const savedState = localStorage.getItem('saved_game_state');
       if (savedState) {
-        setGameState(JSON.parse(savedState));
+        useGameStore.getState().loadGame(JSON.parse(savedState));
+        setIsGameStarted(true);
         showToast('已加载手动存档');
         setIsSidebarOpen(false);
       } else {
@@ -113,7 +122,7 @@ export function Game() {
   };
 
   const exportSave = () => {
-    if (gameState) {
+    if (isGameStarted) {
       try {
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(gameState));
         const downloadAnchorNode = document.createElement('a');
@@ -144,7 +153,8 @@ export function Game() {
           const content = event.target?.result as string;
           const parsed = JSON.parse(content);
           if (parsed && parsed.stats && parsed.memory) {
-            setGameState(parsed);
+            useGameStore.getState().loadGame(parsed);
+            setIsGameStarted(true);
             showToast('存档已导入');
             setIsSidebarOpen(false);
           } else {
@@ -173,7 +183,7 @@ export function Game() {
   }, [isSidebarOpen]);
 
   const handleChoice = async (choice: string) => {
-    if (!gameState) return;
+    if (!isGameStarted) return;
     setIsLoading(true);
     setError(null);
     
@@ -181,26 +191,24 @@ export function Game() {
     if (gameState.skills) {
       const usedSkills = gameState.skills.filter(skill => choice.includes(skill.name));
       if (usedSkills.length > 0) {
-        setSkillCooldowns(prev => {
-          const next = { ...prev };
-          const now = Date.now();
-          usedSkills.forEach(skill => {
-            next[skill.name] = now + 30000; // 30 seconds cooldown
-          });
-          return next;
+        usedSkills.forEach(skill => {
+          setSkillCooldowns(skill.name);
         });
       }
     }
 
     try {
+      // Decrement cooldowns for all skills
+      useGameStore.getState().decrementCooldowns();
+
       // Clear previous choices and start streaming
-      setGameState(prev => prev ? { ...prev, choices: [], storyText: '' } : null);
+      setGameState(prev => ({ ...prev, choices: [], storyText: '' }));
       
       let fullStory = '';
       const stream = generateStoryStream(gameState, choice);
       for await (const chunk of stream) {
         fullStory += chunk;
-        setGameState(prev => prev ? { ...prev, storyText: fullStory } : null);
+        setGameState(prev => ({ ...prev, storyText: fullStory }));
       }
       
       // Parse choices
@@ -211,11 +219,10 @@ export function Game() {
         fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
       }
       
-      setGameState(prev => prev ? { ...prev, storyText: fullStory, choices } : null);
+      setGameState(prev => ({ ...prev, storyText: fullStory, choices }));
       
       const updates = await extractStateUpdates(gameState, choice, fullStory);
       setGameState(prev => {
-        if (!prev) return null;
         const newState = applyStateUpdates(prev, updates);
         
         // Add choice log
@@ -250,7 +257,6 @@ export function Game() {
         updateGameMemory(gameState.memory || { summary: '', worldInfo: [] }, historyToPass)
           .then(updatedMemory => {
             setGameState(current => {
-              if (!current) return current;
               return {
                 ...current,
                 memory: updatedMemory
@@ -270,10 +276,10 @@ export function Game() {
   };
 
   const handleUseSkill = (skill: string) => {
-    if (isLoading || !gameState) return;
+    if (isLoading || !isGameStarted) return;
     
     const cooldownEnd = skillCooldowns[skill];
-    if (cooldownEnd && Date.now() < cooldownEnd) {
+    if (cooldownEnd && cooldownEnd > 0) {
       showToast(`${skill} 正在冷却中...`);
       return;
     }
@@ -282,7 +288,7 @@ export function Game() {
     setIsSidebarOpen(false);
   };
 
-  if (!gameState && isLoading) {
+  if (!isGameStarted && isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center relative">
         <div className="atmosphere-bg" />
@@ -292,7 +298,7 @@ export function Game() {
     );
   }
 
-  if (!gameState && !isLoading && !error) {
+  if (!isGameStarted && !isLoading && !error) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center relative p-6">
         <div className="atmosphere-bg" />
@@ -352,7 +358,7 @@ export function Game() {
     );
   }
 
-  if (error && !gameState) {
+  if (error && !isGameStarted) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-6 relative">
         <div className="atmosphere-bg" />
@@ -389,7 +395,7 @@ export function Game() {
           </button>
           <div className="flex flex-col">
             <h1 className="text-lg font-serif font-semibold tracking-wide text-zinc-100 leading-tight">编年史</h1>
-            {gameState && gameState.location && (
+            {isGameStarted && gameState.location && (
               <span className="text-[10px] text-emerald-400/80 flex items-center gap-1 mt-0.5">
                 <MapPin className="w-2.5 h-2.5" />
                 {gameState.location}
@@ -400,16 +406,6 @@ export function Game() {
       </div>
 
       <Sidebar 
-        inventory={gameState?.inventory || []} 
-        skills={gameState?.skills || []}
-        skillCooldowns={skillCooldowns}
-        quests={gameState?.quests || []} 
-        npcStates={gameState?.npcStates || []}
-        location={gameState?.location || ''}
-        stats={gameState?.stats || { 
-          hp: 100, maxHp: 100, gold: 0, level: 1, exp: 0, maxExp: 100, skillPoints: 0, 
-          attributes: { strength: 10, agility: 10, intelligence: 10, charisma: 10, luck: 10 } 
-        }}
         onOpenSettings={() => { setIsSettingsOpen(true); setIsSidebarOpen(false); }}
         onOpenWorldbook={() => { setIsWorldbookOpen(true); setIsSidebarOpen(false); }}
         onOpenLogs={() => { setIsLogsOpen(true); setIsSidebarOpen(false); }}
@@ -424,7 +420,7 @@ export function Game() {
       />
       
       <main className="flex-1 relative overflow-y-auto overflow-x-hidden">
-        {gameState && (
+        {isGameStarted && (
           <div className="sticky top-0 z-30 p-4 md:p-6 pointer-events-none flex justify-center">
             <motion.div 
               initial={{ y: -20, opacity: 0 }}
@@ -477,9 +473,8 @@ export function Game() {
         )}
 
         <div className="max-w-4xl mx-auto p-4 md:p-12 pb-32 pt-2 md:pt-4">
-          {gameState && (
+          {isGameStarted && (
             <StoryView 
-              gameState={gameState} 
               onChoice={handleChoice} 
               onRestart={startGame}
               isLoading={isLoading} 
@@ -501,7 +496,7 @@ export function Game() {
         memory={gameState?.memory || { summary: '', worldInfo: [] }}
         logs={gameState?.logs || []}
         onUpdateMemory={(newMemory) => {
-          if (gameState) {
+          if (isGameStarted) {
             setGameState({ ...gameState, memory: newMemory });
             showToast('世界书已更新');
           }

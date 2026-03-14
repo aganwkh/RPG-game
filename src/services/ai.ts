@@ -1,13 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState } from '../types';
-
-const getSettings = (): ApiSettings => {
-  try {
-    const saved = localStorage.getItem('api_settings');
-    if (saved) return JSON.parse(saved);
-  } catch (e) {}
-  return { provider: 'default' };
-};
+import { customApiFetch, customApiFetchStream, fetchWithRetry, getSettings } from './httpClient';
+import { z } from 'zod';
 
 const getAI = () => {
   // @ts-ignore
@@ -49,7 +43,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
   const apiKey = settings.bgApiKey || settings.apiKey;
 
   if (provider === 'custom' && baseUrl && apiKey) {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/embeddings`, {
+    const response = await fetchWithRetry(`${baseUrl.replace(/\/$/, '')}/embeddings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -60,7 +54,6 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
         input: text
       })
     });
-    if (!response.ok) throw new Error(`Custom Embedding API Error: ${response.statusText}`);
     const data = await response.json();
     return data.data[0].embedding;
   }
@@ -94,26 +87,12 @@ Generate the updated summary.`;
   const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
   if (provider === 'custom' && baseUrl && apiKey) {
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: prompt }
-        ]
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Custom API Error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
+    const data = await customApiFetch('/chat/completions', {
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: prompt }
+      ]
+    }, { isBackground: true });
     return data.choices[0].message.content.trim();
   }
 
@@ -128,6 +107,14 @@ Generate the updated summary.`;
 
   return response.text?.trim() || currentSummary;
 };
+
+const MemoryUpdateSchema = z.object({
+  summary: z.string().optional(),
+  worldInfo: z.array(z.object({
+    keywords: z.array(z.string()),
+    content: z.string()
+  })).optional()
+});
 
 export const updateGameMemory = async (
   currentMemory: MemoryState,
@@ -201,10 +188,11 @@ Analyze the recent history.
   const apiKey = settings.bgApiKey || settings.apiKey;
   const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
-  let parsedMemory: any;
+  let parsedMemory: any = { summary: currentMemory.summary, worldInfo: [] };
 
-  if (provider === 'custom' && baseUrl && apiKey) {
-    const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+  try {
+    if (provider === 'custom' && baseUrl && apiKey) {
+      const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
 {
   "summary": "string",
   "worldInfo": [
@@ -212,60 +200,53 @@ Analyze the recent history.
   ]
 }`;
 
-    const response = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: model,
+      const data = await customApiFetch('/chat/completions', {
         messages: [
           { role: 'system', content: customSystemInstruction },
           { role: 'user', content: prompt }
         ],
         response_format: { type: 'json_object' }
-      })
-    });
+      }, { isBackground: true });
 
-    if (!response.ok) {
-      throw new Error(`Custom API Error: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices[0].message.content;
-    parsedMemory = parseJSONResponse(content);
-  } else {
-    const ai = getAI();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite-preview',
-      contents: prompt,
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING, description: 'Long-term story summary.' },
-            worldInfo: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                  content: { type: Type.STRING }
+      const content = data.choices[0].message.content;
+      parsedMemory = parseJSONResponse(content);
+    } else {
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-preview',
+        contents: prompt,
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              summary: { type: Type.STRING, description: 'Long-term story summary.' },
+              worldInfo: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    content: { type: Type.STRING }
+                  },
+                  required: ['keywords', 'content']
                 },
-                required: ['keywords', 'content']
-              },
-              description: 'Lore and entities.'
-            }
-          },
-          required: ['summary', 'worldInfo']
+                description: 'Lore and entities.'
+              }
+            },
+            required: ['summary', 'worldInfo']
+          }
         }
-      }
-    });
+      });
 
-    parsedMemory = parseJSONResponse(response.text || '{}');
+      parsedMemory = parseJSONResponse(response.text || '{}');
+    }
+    
+    parsedMemory = MemoryUpdateSchema.parse(parsedMemory);
+  } catch (err) {
+    console.error("Failed to parse or validate memory update:", err);
+    parsedMemory = { summary: currentMemory.summary, worldInfo: [] };
   }
   
   // Merge AI output with existing memory
@@ -342,24 +323,14 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
   const context = await buildOptimizedContext(gameState, action, systemInstruction);
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
-    const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
-      },
-      body: JSON.stringify({
-        model: settings.model || 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: systemInstruction },
-          { role: 'user', content: context + `\n\nPlayer Action: ${action}` }
-        ],
-        stream: true
-      })
+    const response = await customApiFetchStream('/chat/completions', {
+      messages: [
+        { role: 'system', content: systemInstruction },
+        { role: 'user', content: context + `\n\nPlayer Action: ${action}` }
+      ],
+      stream: true
     });
 
-    if (!response.ok) throw new Error(`Custom API Error: ${response.statusText}`);
-    
     const reader = response.body?.getReader();
     const decoder = new TextDecoder('utf-8');
     
@@ -404,6 +375,43 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
   }
 };
 
+const StateDeltaSchema = z.object({
+  statDeltas: z.array(z.object({
+    target: z.enum(['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints']),
+    operation: z.enum(['add', 'subtract', 'set']),
+    value: z.number()
+  })).optional(),
+  inventoryDeltas: z.array(z.object({
+    operation: z.enum(['add', 'remove']),
+    item: z.string()
+  })).optional(),
+  newLocation: z.string().optional(),
+  newSkills: z.array(z.object({
+    name: z.string(),
+    level: z.number().optional(),
+    exp: z.number().optional(),
+    maxLevel: z.number().optional()
+  })).optional(),
+  questUpdates: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    step: z.number().optional(),
+    status: z.enum(['active', 'completed', 'failed']).optional()
+  })).optional(),
+  npcUpdates: z.array(z.object({
+    name: z.string(),
+    affinity: z.number().optional(),
+    isAlive: z.boolean().optional()
+  })).optional(),
+  logs: z.array(z.object({
+    id: z.string(),
+    timestamp: z.number(),
+    type: z.enum(['event', 'combat', 'item']),
+    text: z.string()
+  })).optional(),
+  isGameOver: z.boolean().optional()
+});
+
 export const extractStateUpdates = async (
   gameState: GameState,
   action: string,
@@ -438,47 +446,47 @@ Respond ONLY with a valid JSON object matching this schema:
   "isGameOver": boolean (true ONLY if the story explicitly states the player died)
 }`;
 
-  if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
-    const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
-      },
-      body: JSON.stringify({
-        model: settings.model || 'gpt-3.5-turbo',
+  let parsedData: any = {};
+
+  try {
+    if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
+      const data = await customApiFetch('/chat/completions', {
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
-      })
-    });
-    if (!response.ok) throw new Error(`Custom API Error: ${response.statusText}`);
-    const data = await response.json();
-    return parseJSONResponse(data.choices[0].message.content);
-  }
-
-  const ai = getAI();
-  const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite-preview',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          statDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { target: { type: Type.STRING }, operation: { type: Type.STRING }, value: { type: Type.NUMBER } } } },
-          inventoryDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { operation: { type: Type.STRING }, item: { type: Type.STRING } } } },
-          newLocation: { type: Type.STRING },
-          newSkills: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, level: { type: Type.NUMBER }, exp: { type: Type.NUMBER }, maxLevel: { type: Type.NUMBER } } } },
-          questUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, step: { type: Type.NUMBER }, status: { type: Type.STRING } } } },
-          npcUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, affinity: { type: Type.NUMBER }, isAlive: { type: Type.BOOLEAN } } } },
-          logs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, timestamp: { type: Type.NUMBER }, type: { type: Type.STRING }, text: { type: Type.STRING } } } },
-          isGameOver: { type: Type.BOOLEAN }
+      });
+      parsedData = parseJSONResponse(data.choices[0].message.content);
+    } else {
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-preview',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              statDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { target: { type: Type.STRING }, operation: { type: Type.STRING }, value: { type: Type.NUMBER } } } },
+              inventoryDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { operation: { type: Type.STRING }, item: { type: Type.STRING } } } },
+              newLocation: { type: Type.STRING },
+              newSkills: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, level: { type: Type.NUMBER }, exp: { type: Type.NUMBER }, maxLevel: { type: Type.NUMBER } } } },
+              questUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, step: { type: Type.NUMBER }, status: { type: Type.STRING } } } },
+              npcUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, affinity: { type: Type.NUMBER }, isAlive: { type: Type.BOOLEAN } } } },
+              logs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, timestamp: { type: Type.NUMBER }, type: { type: Type.STRING }, text: { type: Type.STRING } } } },
+              isGameOver: { type: Type.BOOLEAN }
+            }
+          }
         }
-      }
-    }
-  });
+      });
 
-  return parseJSONResponse(response.text || '{}');
+      parsedData = parseJSONResponse(response.text || '{}');
+    }
+
+    return StateDeltaSchema.parse(parsedData);
+  } catch (error) {
+    console.error("Failed to parse or validate state updates:", error);
+    // Return empty state updates if validation fails to prevent crash
+    return {};
+  }
 };
 
 
@@ -496,22 +504,10 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
     try {
-      const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`
-        },
-        body: JSON.stringify({
-          model: settings.model || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }]
-        })
+      const data = await customApiFetch('/chat/completions', {
+        messages: [{ role: 'user', content: prompt }]
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content.trim();
-      }
+      return data.choices[0].message.content.trim();
     } catch (e) {
       console.error("Failed to generate item description with custom API", e);
     }
@@ -545,22 +541,10 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
     try {
-      const response = await fetch(`${settings.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${settings.apiKey}`
-        },
-        body: JSON.stringify({
-          model: settings.model || 'gpt-3.5-turbo',
-          messages: [{ role: 'user', content: prompt }]
-        })
+      const data = await customApiFetch('/chat/completions', {
+        messages: [{ role: 'user', content: prompt }]
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices[0].message.content.trim();
-      }
+      return data.choices[0].message.content.trim();
     } catch (e) {
       console.error("Failed to generate skill description with custom API", e);
     }

@@ -3,15 +3,9 @@ import { Backpack, Scroll, User, Settings, Save, Download, Upload, Heart, Coins,
 import { CharacterStats, Skill, Quest, NpcState } from '../types';
 import { generateItemDescription, generateSkillDescription } from '../services/ai';
 import { motion, AnimatePresence } from 'motion/react';
+import { useGameStore } from '../store/gameStore';
 
 interface SidebarProps {
-  inventory: string[];
-  skills: Skill[];
-  skillCooldowns: Record<string, number>;
-  quests: Quest[];
-  npcStates: NpcState[];
-  location: string;
-  stats: CharacterStats;
   onOpenSettings: () => void;
   onOpenWorldbook: () => void;
   onOpenLogs: () => void;
@@ -20,19 +14,25 @@ interface SidebarProps {
   onExport: () => void;
   onImport: () => void;
   onNewGame: () => void;
-  onUseSkill: (skill: string) => void;
+  onUseSkill: (skillName: string) => void;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, location, stats, onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+  const inventory = useGameStore(state => state.inventory);
+  const skills = useGameStore(state => state.skills);
+  const skillCooldowns = useGameStore(state => state.skillCooldowns);
+  const quests = useGameStore(state => state.quests);
+  const npcStates = useGameStore(state => state.npcStates);
+  const location = useGameStore(state => state.location);
+  const stats = useGameStore(state => state.stats);
   const [itemDescriptions, setItemDescriptions] = useState<Record<string, string>>({});
   const [skillDescriptions, setSkillDescriptions] = useState<Record<string, string>>({});
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [hoveredSkillIndex, setHoveredSkillIndex] = useState<number | null>(null);
   const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
   const [loadingSkills, setLoadingSkills] = useState<Set<string>>(new Set());
-  const [now, setNow] = useState(Date.now());
   const [attrAnimations, setAttrAnimations] = useState<Record<string, { diff: number, id: number }>>({});
   const prevStatsRef = React.useRef(stats);
 
@@ -76,11 +76,6 @@ export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, 
       return () => clearTimeout(timer);
     }
   }, [stats]);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Load saved descriptions on mount
   useEffect(() => {
@@ -589,9 +584,9 @@ export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, 
             {skills && skills.length > 0 ? (
               skills.map((skillObj, idx) => {
                 const skill = skillObj.name;
-                const cooldownEnd = skillCooldowns[skill];
-                const isOnCooldown = Boolean(cooldownEnd && now < cooldownEnd);
-                const cooldownPercent = isOnCooldown ? Math.max(0, Math.min(100, ((cooldownEnd - now) / 30000) * 100)) : 0;
+                const cooldownTurns = skillCooldowns[skill] || 0;
+                const isOnCooldown = cooldownTurns > 0;
+                const cooldownPercent = isOnCooldown ? (cooldownTurns / 3) * 100 : 0; // Assuming max 3 turns cooldown
                 
                 // Calculate EXP progress
                 const expNeeded = skillObj.level === 1 ? 100 : 
@@ -646,7 +641,7 @@ export function Sidebar({ inventory, skills, skillCooldowns, quests, npcStates, 
                         <span className={`font-serif flex-1 ${isOnCooldown ? 'text-zinc-400' : ''}`}>{skill}</span>
                         {isOnCooldown && (
                           <span className="text-[10px] font-mono text-amber-500/80">
-                            {Math.ceil((cooldownEnd - now) / 1000)}s
+                            {cooldownTurns} 回合
                           </span>
                         )}
                         {!isOnCooldown && (

@@ -68,6 +68,7 @@ export interface NpcState {
 }
 
 export interface GameState {
+  version?: string;
   storyText: string;
   choices: string[];
   inventory: string[];
