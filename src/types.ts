@@ -1,123 +1,44 @@
-export interface Attributes {
-  strength: number;
-  agility: number;
-  intelligence: number;
-  charisma: number;
-  luck: number;
-}
+export type ItemType = "Consumable" | "Quest Item" | "Material" | "Unknown";
 
-export interface CharacterStats {
-  hp: number;
-  maxHp: number;
-  gold: number;
-  level: number;
-  exp?: number;
-  maxExp?: number;
-  skillPoints?: number;
-  attributes?: Attributes;
-}
-
-export interface ApiSettings {
-  provider: 'default' | 'custom';
-  baseUrl?: string;
-  apiKey?: string;
-  model?: string;
-  
-  bgProvider?: 'default' | 'custom';
-  bgBaseUrl?: string;
-  bgApiKey?: string;
-  bgModel?: string;
-}
-
-export interface LogEntry {
-  id: string;
-  timestamp: number;
-  type: 'choice' | 'event' | 'system' | 'location' | 'level_up' | 'item' | 'combat' | 'skill';
-  text: string;
-}
-
-export interface Skill {
-  name: string;
-  level: number;
-  exp: number;
-  maxLevel: number;
-}
-
-export interface LorebookEntry {
-  keywords: string[];
-  content: string;
-  embedding?: number[];
-}
-
-export interface MemoryState {
-  summary: string;
-  worldInfo: LorebookEntry[];
-}
-
-export interface Quest {
+export interface Item {
   id: string;
   name: string;
-  step: number;
-  status: 'active' | 'completed' | 'failed';
+  type: ItemType;
+  surfaceDescription: string;
+  hiddenTruth?: string; // Dual-Layer Lore: Only AI sees this
+  isUnresolvedMystery: boolean; // Lazy Evaluation: true if hiddenTruth is not yet generated
+  usageCondition?: string; // Mechanical Anchoring: e.g., "Requires a locked door"
+  effect?: string; // e.g., "HEAL_30"
+  collectionTarget?: number; // e.g., 3
+  currentCount?: number; // e.g., 1
 }
 
-export interface NpcState {
-  name: string;
-  affinity: number;
-  isAlive: boolean;
+export interface Triplet {
+  source: string;
+  relation: string;
+  target: string;
+}
+
+export interface QuestNode {
+  id: string;
+  title: string;
+  description: string;
+  dependencies: string[]; // IDs of prerequisite quests
+  status: "locked" | "available" | "active" | "completed";
 }
 
 export interface GameState {
-  version?: string;
-  storyText: string;
-  choices: string[];
-  inventory: string[];
-  skills: Skill[];
-  quests: Quest[];
-  npcStates: NpcState[];
-  isGameOver?: boolean;
-  location: string;
-  stats: CharacterStats;
-  memory?: MemoryState;
-  logs?: LogEntry[];
-  combatLogs?: string[];
-  recentHistory?: { action: string, story: string }[];
+  inventory: Item[];
+  activeMysteries: string[];
+  knowledgeGraph: Triplet[];
+  questDAG: Record<string, QuestNode>;
+  currentLocation: string;
+  hp: number;
+  maxHp: number;
 }
 
 export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-}
-
-export type StatOperation = 'add' | 'subtract' | 'set';
-
-export interface StatDelta {
-  target: 'hp' | 'maxHp' | 'gold' | 'level' | 'exp' | 'skillPoints';
-  operation: StatOperation;
-  value: number;
-}
-
-export interface InventoryDelta {
-  operation: 'add' | 'remove';
-  item: string;
-}
-
-export interface StateUpdateResult {
-  statDeltas?: StatDelta[];
-  inventoryDeltas?: InventoryDelta[];
-  newLocation?: string;
-  newSkills?: Skill[];
-  questUpdates?: Quest[];
-  npcUpdates?: NpcState[];
-  logs?: LogEntry[];
-  isGameOver?: boolean;
-}
-
-declare global {
-  interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
 }
