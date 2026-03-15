@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { GameState, ChatMessage, Item, Triplet, QuestNode } from "../types";
 import * as gemini from "../services/gemini";
+import { evaluateAction, calculateTension } from "../services/arbitrator";
 
 interface GameContextType {
   state: GameState;
@@ -36,6 +37,47 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
     currentLocation: "Unknown",
     hp: 100,
     maxHp: 100,
+    exp: 0,
+    level: 1,
+    stats: {
+      str: 12,
+      dex: 14,
+      int: 10,
+      cha: 12,
+    },
+    metrics: {
+      turnsSinceLastCombat: 0,
+      turnsInCurrentLocation: 0,
+      turnsSinceMainQuestUpdate: 0,
+      consecutiveDialogueTurns: 0,
+    },
+    tensionLevel: 10,
+    storyOutline: {
+      currentAct: 0,
+      acts: [
+        {
+          actIndex: 0,
+          name: "Act I: The Awakening",
+          goal: "Discover the source of the strange noises in the village.",
+          completionCondition: "Find the hidden cave entrance.",
+          isCompleted: false,
+        },
+        {
+          actIndex: 1,
+          name: "Act II: The Descent",
+          goal: "Explore the depths of the cave and confront the cult.",
+          completionCondition: "Defeat the cult leader.",
+          isCompleted: false,
+        },
+        {
+          actIndex: 2,
+          name: "Act III: The Resolution",
+          goal: "Return to the village and restore peace.",
+          completionCondition: "Seal the cave permanently.",
+          isCompleted: false,
+        },
+      ],
+    },
   });
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -86,15 +128,22 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
         );
 
         const actionPromise = async () => {
+          // 0. Action Evaluation (Frontend Dice Roll)
+          const systemRoll = evaluateAction(action, state.stats);
+          if (systemRoll) {
+            addMessage("system", systemRoll);
+          }
+
           // 1. Shadow Director (Multi-Agent Router)
-          const directorNote = await gemini.generateDirectorNote(
-            action,
-            state.currentLocation,
-            state.activeMysteries,
-            state.inventory.map((i) => i.name),
-            Object.values(state.questDAG)
-              .filter((q) => q.status === "active")
-              .map((q) => q.title),
+          const currentAct = state.storyOutline.acts[state.storyOutline.currentAct];
+          const recentStory = messages.slice(-3).map(m => m.content).join("\n");
+          
+          const directorNote = await gemini.fetchDirectorAPI(
+            state.metrics,
+            state.tensionLevel,
+            currentAct.goal,
+            currentAct.completionCondition,
+            recentStory
           );
 
           // 2. Reverse RAG Probe (Inventory Resonance)
@@ -166,7 +215,9 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
           const stream = await gemini.generateMainStoryStream(
             action,
             relevantTriplets,
+            systemRoll,
             directorNote,
+            currentAct.goal,
             resonanceNote,
             collapseNote,
             activeQuests,
@@ -279,6 +330,52 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
                 }
               });
               newState.questDAG = newQuestDAG;
+            }
+
+            if (updates.expChange) {
+              newState.exp += updates.expChange;
+              addMessage("system", `Gained ${updates.expChange} EXP.`);
+              // Simple level up logic
+              const expNeeded = newState.level * 100;
+              if (newState.exp >= expNeeded) {
+                newState.level += 1;
+                newState.exp -= expNeeded;
+                newState.maxHp += 10;
+                newState.hp = newState.maxHp;
+                addMessage("system", `Level Up! You are now level ${newState.level}. HP restored.`);
+              }
+            }
+
+            // Update Tension and Metrics based on action and story
+            let eventType: "combat" | "plot_twist" | "dialogue" | "exploration" | "idle" = "exploration";
+            if (action.toLowerCase().includes("attack") || action.toLowerCase().includes("kill")) eventType = "combat";
+            else if (action.toLowerCase().includes("solve") || action.toLowerCase().includes("use")) eventType = "plot_twist";
+            else if (action.toLowerCase().includes("talk") || action.toLowerCase().includes("ask")) eventType = "dialogue";
+            else if (action.toLowerCase().includes("wait") || action.toLowerCase().includes("rest")) eventType = "idle";
+            
+            newState.tensionLevel = calculateTension(newState.tensionLevel, eventType);
+            
+            // Update Metrics
+            if (eventType === "combat") newState.metrics.turnsSinceLastCombat = 0;
+            else newState.metrics.turnsSinceLastCombat += 1;
+
+            if (updates.newLocation) newState.metrics.turnsInCurrentLocation = 0;
+            else newState.metrics.turnsInCurrentLocation += 1;
+
+            if (updates.completedQuestIds && updates.completedQuestIds.length > 0) newState.metrics.turnsSinceMainQuestUpdate = 0;
+            else newState.metrics.turnsSinceMainQuestUpdate += 1;
+
+            if (eventType === "dialogue") newState.metrics.consecutiveDialogueTurns += 1;
+            else newState.metrics.consecutiveDialogueTurns = 0;
+
+            // Apply Director Note
+            newState.directorNote = directorNote;
+            if (directorNote.advance_act) {
+               if (newState.storyOutline.currentAct < newState.storyOutline.acts.length - 1) {
+                   newState.storyOutline.acts[newState.storyOutline.currentAct].isCompleted = true;
+                   newState.storyOutline.currentAct += 1;
+                   addMessage("system", `Act Advanced: ${newState.storyOutline.acts[newState.storyOutline.currentAct].name}`);
+               }
             }
 
             return newState;

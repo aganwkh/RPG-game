@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { PacingMetrics, DirectorNote } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
@@ -17,34 +18,79 @@ export const flashModel = "gemini-3-flash-preview";
 // We'll use Pro for main story generation
 export const proModel = "gemini-3.1-pro-preview";
 
-export async function generateDirectorNote(
-  action: string,
-  location: string,
-  mysteries: string[],
-  inventory: string[],
-  quests: string[],
-): Promise<string> {
+export async function fetchDirectorAPI(
+  metrics: PacingMetrics,
+  tensionLevel: number,
+  currentActGoal: string,
+  currentActCondition: string,
+  recentStory: string,
+): Promise<DirectorNote> {
   const prompt = `
 You are the "Shadow Director" of a text RPG.
-Your job is to output a single, concise Director's Note (under 50 words) to guide the main story writer.
-Do NOT write the story yourself. Just give instructions on tone, pacing, and what to focus on.
+Your job is to control the pacing and narrative tension.
 
-Context:
-- Player Action: "${action}"
-- Current Location: "${location}"
-- Active Mysteries: ${mysteries.join(", ")}
-- Inventory: ${inventory.join(", ")}
-- Active Quests: ${quests.join(", ")}
+Current Metrics:
+- Turns since last combat: ${metrics.turnsSinceLastCombat}
+- Turns in current location: ${metrics.turnsInCurrentLocation}
+- Turns since main quest update: ${metrics.turnsSinceMainQuestUpdate}
+- Consecutive dialogue turns: ${metrics.consecutiveDialogueTurns}
+- Global Tension Level: ${tensionLevel}/100
 
-Output a short instruction like: "Make it rain to set a sad mood. Hint at the missing heir. Don't reveal monster HP."
+Current Act Goal: ${currentActGoal}
+Completion Condition: ${currentActCondition}
+
+Recent Story Context:
+"${recentStory}"
+
+Forced Decision Matrix:
+1. If tension < 20 AND turns since last combat > 8, you MUST output a plot_injection (e.g., enemy ambush, sudden crisis) and set pacing to "normal".
+2. If turns in current location > 15 AND completion condition is not met, you MUST set pacing to "fast-forward" to push the player forward.
+3. If the player has met the completion condition based on the recent story, you MUST set advance_act to true.
+
+Output a JSON object matching this schema:
+{
+  "pacing": "fast-forward" | "normal" | "slow-burn",
+  "plot_injection": "string (empty if none)",
+  "advance_act": boolean,
+  "weather_or_mood": "peaceful" | "tense" | "horror" | "neutral"
+}
   `;
 
-  const response = await ai.models.generateContent({
-    model: flashModel,
-    contents: prompt,
-  });
+  try {
+    const response = await ai.models.generateContent({
+      model: flashModel,
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pacing: { type: Type.STRING },
+            plot_injection: { type: Type.STRING },
+            advance_act: { type: Type.BOOLEAN },
+            weather_or_mood: { type: Type.STRING },
+          },
+          required: ["pacing", "plot_injection", "advance_act", "weather_or_mood"],
+        },
+      },
+    });
 
-  return response.text || "";
+    const result = parseJSON(response.text || "{}");
+    return {
+      pacing: result.pacing || "normal",
+      plot_injection: result.plot_injection || "",
+      advance_act: result.advance_act || false,
+      weather_or_mood: result.weather_or_mood || "neutral",
+    } as DirectorNote;
+  } catch (e) {
+    console.error("Director API failed, using fallback", e);
+    return {
+      pacing: "normal",
+      plot_injection: "",
+      advance_act: false,
+      weather_or_mood: "neutral",
+    };
+  }
 }
 
 export async function checkInventoryResonance(
@@ -156,7 +202,9 @@ Output a JSON object with:
 export async function generateMainStoryStream(
   action: string,
   contextTriplets: string[],
-  directorNote: string,
+  systemRoll: string | null,
+  directorNote: DirectorNote | undefined,
+  currentActGoal: string,
   resonanceNote: string | null,
   collapseNote: string | null,
   activeQuests: string[],
@@ -173,7 +221,12 @@ ${contextTriplets.join("\n")}
 Current Location: "${location}"
 Active Quests: ${activeQuests.join(", ")}
 
-[DIRECTOR's NOTE (Absolute Priority)]: ${directorNote}
+[SYSTEM HIGHEST PRIORITY GUIDANCE]:
+${systemRoll ? `- Action Evaluation: ${systemRoll}` : ""}
+${directorNote ? `- Pacing: ${directorNote.pacing}` : ""}
+${directorNote?.plot_injection ? `- Plot Injection (MUST INCLUDE): ${directorNote.plot_injection}` : ""}
+- Current Act Goal: ${currentActGoal}
+
 ${resonanceNote ? `[RESONANCE NOTE (Absolute Priority)]: ${resonanceNote}` : ""}
 ${collapseNote ? `[MYSTERY REVEAL NOTE (Absolute Priority)]: ${collapseNote}` : ""}
 
@@ -212,6 +265,10 @@ Extract the following in JSON format:
 3. hpChange: Number (positive for heal, negative for damage, 0 for no change).
 4. newLocation: String (if the player moved to a new distinct area, otherwise empty string).
 5. completedQuestIds: Array of quest IDs that were completed in this story segment.
+6. expChange: Number. Dynamic Reward Scaling Rule:
+   - Traveling/Idle: 0-5 EXP
+   - Combat/Puzzle Solving: 20-50 EXP
+   - Act Progression/Boss Defeated: 100-300 EXP
 
 JSON Schema:
 {
@@ -230,7 +287,8 @@ JSON Schema:
   ],
   "hpChange": number,
   "newLocation": "string",
-  "completedQuestIds": ["string"]
+  "completedQuestIds": ["string"],
+  "expChange": number
 }
   `;
 
@@ -273,6 +331,7 @@ JSON Schema:
             type: Type.ARRAY,
             items: { type: Type.STRING },
           },
+          expChange: { type: Type.NUMBER },
         },
       },
     },

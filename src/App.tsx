@@ -151,7 +151,7 @@ const Sidebar = () => {
           <Map size={18} className="text-indigo-400" />
           <span className="font-medium truncate">{state.currentLocation}</span>
         </div>
-        <div className="space-y-2">
+        <div className="space-y-3">
           <div className="flex justify-between text-sm">
             <span className="text-zinc-400 flex items-center gap-1">
               <Shield size={14} /> HP
@@ -165,7 +165,7 @@ const Sidebar = () => {
               {state.hp} / {state.maxHp}
             </span>
           </div>
-          <div className="w-full bg-zinc-800 rounded-full h-1.5">
+          <div className="w-full bg-zinc-800 rounded-full h-1.5 mb-2">
             <div
               className={clsx(
                 "h-1.5 rounded-full transition-all duration-500",
@@ -173,6 +173,55 @@ const Sidebar = () => {
               )}
               style={{ width: `${(state.hp / state.maxHp) * 100}%` }}
             />
+          </div>
+
+          <div className="flex justify-between text-sm">
+            <span className="text-zinc-400 flex items-center gap-1">
+              <Sword size={14} /> Lvl {state.level}
+            </span>
+            <span className="font-mono text-indigo-400">
+              {state.exp} / {state.level * 100} XP
+            </span>
+          </div>
+          <div className="w-full bg-zinc-800 rounded-full h-1.5">
+            <div
+              className="h-1.5 rounded-full bg-indigo-500 transition-all duration-500"
+              style={{ width: `${(state.exp / (state.level * 100)) * 100}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Story Progress & Tension */}
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+        <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Scroll size={14} /> Director's Cut
+        </h3>
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs text-zinc-400 mb-1">Current Act</div>
+            <div className="text-sm text-zinc-200 font-medium">
+              {state.storyOutline.acts[state.storyOutline.currentAct]?.name || "Epilogue"}
+            </div>
+            <div className="text-xs text-zinc-500 mt-1 italic">
+              {state.storyOutline.acts[state.storyOutline.currentAct]?.goal}
+            </div>
+          </div>
+          
+          <div>
+            <div className="flex justify-between text-xs text-zinc-400 mb-1">
+              <span>Tension Level</span>
+              <span className="font-mono">{state.tensionLevel}/100</span>
+            </div>
+            <div className="w-full bg-zinc-800 rounded-full h-1.5">
+              <div
+                className={clsx(
+                  "h-1.5 rounded-full transition-all duration-500",
+                  state.tensionLevel < 30 ? "bg-blue-500" : state.tensionLevel < 70 ? "bg-amber-500" : "bg-red-500"
+                )}
+                style={{ width: `${state.tensionLevel}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -243,7 +292,7 @@ const Sidebar = () => {
 };
 
 const GameLayout = () => {
-  const { startGame, messages } = useGame();
+  const { startGame, state } = useGame();
   const [started, setStarted] = useState(false);
 
   useEffect(() => {
@@ -253,12 +302,36 @@ const GameLayout = () => {
     }
   }, [startGame, started]);
 
+  // Determine visual style based on tension and mood
+  let containerStyle = "bg-zinc-950";
+  let overlayStyle = "";
+
+  if (state.tensionLevel > 80) {
+    containerStyle = "bg-red-950/20";
+    overlayStyle = "shadow-[inset_0_0_100px_rgba(220,38,38,0.15)]";
+  } else if (state.tensionLevel > 50) {
+    containerStyle = "bg-amber-950/20";
+    overlayStyle = "shadow-[inset_0_0_100px_rgba(217,119,6,0.1)]";
+  } else if (state.tensionLevel < 20) {
+    containerStyle = "bg-blue-950/20";
+    overlayStyle = "shadow-[inset_0_0_100px_rgba(37,99,235,0.05)]";
+  }
+
+  const mood = state.directorNote?.weather_or_mood?.toLowerCase() || "";
+  if (mood.includes("rain") || mood.includes("storm")) {
+     overlayStyle += " bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0IiBoZWlnaHQ9IjQiPgo8cmVjdCB3aWR0aD0iNCIgaGVpZ2h0PSI0IiBmaWxsPSIjZmZmIiBmaWxsLW9wYWNpdHk9IjAuMDUiLz4KPC9zdmc+')]";
+  } else if (mood.includes("fog") || mood.includes("mist")) {
+     overlayStyle += " backdrop-blur-[2px]";
+  }
+
   return (
-    <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans p-6 gap-6 max-w-7xl mx-auto">
-      <div className="flex-1 min-w-0">
-        <ChatWindow />
+    <div className={clsx("flex h-screen text-zinc-100 font-sans p-6 gap-6 transition-all duration-1000", containerStyle, overlayStyle)}>
+      <div className="flex-1 min-w-0 max-w-4xl mx-auto flex gap-6 w-full">
+        <div className="flex-1 min-w-0">
+          <ChatWindow />
+        </div>
+        <Sidebar />
       </div>
-      <Sidebar />
     </div>
   );
 };

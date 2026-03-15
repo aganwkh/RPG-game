@@ -27,6 +27,35 @@ export interface QuestNode {
   status: "locked" | "available" | "active" | "completed";
 }
 
+export interface PacingMetrics {
+  turnsSinceLastCombat: number;
+  turnsInCurrentLocation: number;
+  turnsSinceMainQuestUpdate: number;
+  consecutiveDialogueTurns: number;
+}
+
+export interface StoryAct {
+  actIndex: number;
+  name: string;
+  goal: string;
+  completionCondition: string;
+  isCompleted: boolean;
+}
+
+export interface DirectorNote {
+  pacing: "fast-forward" | "normal" | "slow-burn";
+  plot_injection: string;
+  advance_act: boolean;
+  weather_or_mood: "peaceful" | "tense" | "horror" | "neutral";
+}
+
+export interface CharacterStats {
+  str: number;
+  dex: number;
+  int: number;
+  cha: number;
+}
+
 export interface GameState {
   inventory: Item[];
   activeMysteries: string[];
@@ -35,6 +64,13 @@ export interface GameState {
   currentLocation: string;
   hp: number;
   maxHp: number;
+  exp: number;
+  level: number;
+  stats: CharacterStats;
+  metrics: PacingMetrics;
+  tensionLevel: number; // 0-100
+  storyOutline: { currentAct: number; acts: StoryAct[] };
+  directorNote?: DirectorNote;
 }
 
 export interface ChatMessage {
