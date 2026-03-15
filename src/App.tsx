@@ -186,8 +186,8 @@ const Sidebar = () => {
           {state.activeMysteries.length === 0 ? (
             <li className="text-sm text-zinc-600 italic">None</li>
           ) : (
-            state.activeMysteries.map((mystery, i) => (
-              <li key={i} className="text-sm text-zinc-300 leading-snug">
+            state.activeMysteries.map((mystery) => (
+              <li key={mystery} className="text-sm text-zinc-300 leading-snug">
                 • {mystery}
               </li>
             ))

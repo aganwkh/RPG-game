@@ -40,6 +40,7 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const isInitializingRef = React.useRef(false);
 
   const addMessage = (role: ChatMessage["role"], content: string) => {
     setMessages((prev) => [
@@ -49,7 +50,8 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const startGame = useCallback(async () => {
-    if (isInitialized) return;
+    if (isInitialized || isInitializingRef.current) return;
+    isInitializingRef.current = true;
     setIsProcessing(true);
     try {
       const initData = await gemini.initializeGame();
@@ -79,193 +81,211 @@ export const GameProvider: React.FC<{ children: React.ReactNode }> = ({
       addMessage("user", action);
 
       try {
-        // 1. Shadow Director (Multi-Agent Router)
-        const directorNote = await gemini.generateDirectorNote(
-          action,
-          state.currentLocation,
-          state.activeMysteries,
-          state.inventory.map((i) => i.name),
-          Object.values(state.questDAG)
-            .filter((q) => q.status === "active")
-            .map((q) => q.title),
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Action processing timed out")), 60000)
         );
 
-        // 2. Reverse RAG Probe (Inventory Resonance)
-        const inventoryTruths = state.inventory
-          .filter((i) => !i.isUnresolvedMystery && i.hiddenTruth)
-          .map((i) => ({ id: i.id, name: i.name, truth: i.hiddenTruth! }));
-
-        const resonance = await gemini.checkInventoryResonance(
-          state.currentLocation,
-          inventoryTruths,
-        );
-        let resonanceNote = null;
-        if (resonance) {
-          resonanceNote = `[System: The item '${state.inventory.find((i) => i.id === resonance.id)?.name}' resonates with the current location. ${resonance.resonanceNote}]`;
-        }
-
-        // 3. Lazy Evaluation (Schrödinger's Item)
-        // If the player seems stuck (e.g., action contains "help", "stuck", "don't know")
-        // or if we just randomly decide to collapse a mystery. Let's do it if they type "stuck" for now.
-        let collapseNote = null;
-        if (
-          action.toLowerCase().includes("stuck") ||
-          action.toLowerCase().includes("help")
-        ) {
-          const mysteryItem = state.inventory.find(
-            (i) => i.isUnresolvedMystery,
+        const actionPromise = async () => {
+          // 1. Shadow Director (Multi-Agent Router)
+          const directorNote = await gemini.generateDirectorNote(
+            action,
+            state.currentLocation,
+            state.activeMysteries,
+            state.inventory.map((i) => i.name),
+            Object.values(state.questDAG)
+              .filter((q) => q.status === "active")
+              .map((q) => q.title),
           );
-          if (mysteryItem) {
-            const collapseResult = await gemini.collapseMystery(
-              action,
-              mysteryItem,
-              state.currentLocation,
-              state.activeMysteries,
+
+          // 2. Reverse RAG Probe (Inventory Resonance)
+          const inventoryTruths = state.inventory
+            .filter((i) => !i.isUnresolvedMystery && i.hiddenTruth)
+            .map((i) => ({ id: i.id, name: i.name, truth: i.hiddenTruth! }));
+
+          const resonance = await gemini.checkInventoryResonance(
+            state.currentLocation,
+            inventoryTruths,
+          );
+          let resonanceNote = null;
+          if (resonance) {
+            resonanceNote = `[System: The item '${state.inventory.find((i) => i.id === resonance.id)?.name}' resonates with the current location. ${resonance.resonanceNote}]`;
+          }
+
+          // 3. Lazy Evaluation (Schrödinger's Item)
+          // If the player seems stuck (e.g., action contains "help", "stuck", "don't know")
+          // or if we just randomly decide to collapse a mystery. Let's do it if they type "stuck" for now.
+          let collapseNote = null;
+          if (
+            action.toLowerCase().includes("stuck") ||
+            action.toLowerCase().includes("help")
+          ) {
+            const mysteryItem = state.inventory.find(
+              (i) => i.isUnresolvedMystery,
             );
-
-            // Update the item in state
-            setState((prev) => ({
-              ...prev,
-              inventory: prev.inventory.map((i) =>
-                i.id === mysteryItem.id
-                  ? {
-                      ...i,
-                      isUnresolvedMystery: false,
-                      hiddenTruth: collapseResult.newTruth,
-                    }
-                  : i,
-              ),
-            }));
-            collapseNote = `[System: The mysterious item '${mysteryItem.name}' suddenly reveals its true nature: ${collapseResult.newTruth}. ${collapseResult.collapseNote}]`;
-          }
-        }
-
-        // 4. Main Story Generation
-        // Extract relevant triplets for context (simple filter for now)
-        const relevantTriplets = state.knowledgeGraph
-          .filter(
-            (t) =>
-              t.source.includes(state.currentLocation) ||
-              t.target.includes(state.currentLocation) ||
-              action.includes(t.source) ||
-              action.includes(t.target),
-          )
-          .map((t) => `${t.source} ${t.relation} ${t.target}`);
-
-        const activeQuests = Object.values(state.questDAG)
-          .filter((q) => q.status === "active")
-          .map((q) => q.title);
-
-        const stream = await gemini.generateMainStoryStream(
-          action,
-          relevantTriplets,
-          directorNote,
-          resonanceNote,
-          collapseNote,
-          activeQuests,
-          state.currentLocation,
-        );
-
-        let fullStory = "";
-        addMessage("assistant", ""); // Placeholder for streaming
-
-        for await (const chunk of stream) {
-          const text = (chunk as any).text;
-          if (text) {
-            fullStory += text;
-            setMessages((prev) => {
-              const newMessages = [...prev];
-              newMessages[newMessages.length - 1].content = fullStory;
-              return newMessages;
-            });
-          }
-        }
-
-        // 5. State Extraction
-        const updates = await gemini.extractStateUpdates(fullStory, state);
-
-        setState((prev) => {
-          const newState = { ...prev };
-
-          if (updates.newItems && updates.newItems.length > 0) {
-            const itemsToAdd = updates.newItems.map((item: any) => ({
-              id: Date.now().toString() + Math.random(),
-              name: item.name,
-              type: item.type as any,
-              surfaceDescription: item.surfaceDescription,
-              hiddenTruth: item.hiddenTruth,
-              isUnresolvedMystery: item.isUnresolvedMystery,
-              usageCondition: item.usageCondition,
-            }));
-            newState.inventory = [...newState.inventory, ...itemsToAdd];
-            addMessage(
-              "system",
-              `Obtained: ${itemsToAdd.map((i) => i.name).join(", ")}`,
-            );
-          }
-
-          if (updates.newTriplets && updates.newTriplets.length > 0) {
-            newState.knowledgeGraph = [
-              ...newState.knowledgeGraph,
-              ...updates.newTriplets,
-            ];
-          }
-
-          if (updates.hpChange) {
-            newState.hp = Math.min(
-              newState.maxHp,
-              Math.max(0, newState.hp + updates.hpChange),
-            );
-            if (updates.hpChange < 0)
-              addMessage(
-                "system",
-                `Took ${Math.abs(updates.hpChange)} damage.`,
+            if (mysteryItem) {
+              const collapseResult = await gemini.collapseMystery(
+                action,
+                mysteryItem,
+                state.currentLocation,
+                state.activeMysteries,
               );
-            if (updates.hpChange > 0)
-              addMessage("system", `Healed ${updates.hpChange} HP.`);
+
+              // Update the item in state
+              setState((prev) => ({
+                ...prev,
+                inventory: prev.inventory.map((i) =>
+                  i.id === mysteryItem.id
+                    ? {
+                        ...i,
+                        isUnresolvedMystery: false,
+                        hiddenTruth: collapseResult.newTruth,
+                      }
+                    : i,
+                ),
+              }));
+              collapseNote = `[System: The mysterious item '${mysteryItem.name}' suddenly reveals its true nature: ${collapseResult.newTruth}. ${collapseResult.collapseNote}]`;
+            }
           }
 
-          if (
-            updates.newLocation &&
-            updates.newLocation !== prev.currentLocation
-          ) {
-            newState.currentLocation = updates.newLocation;
-            addMessage("system", `Moved to: ${updates.newLocation}`);
+          // 4. Main Story Generation
+          // Extract relevant triplets for context (simple filter for now)
+          const relevantTriplets = state.knowledgeGraph
+            .filter(
+              (t) =>
+                t.source.includes(state.currentLocation) ||
+                t.target.includes(state.currentLocation) ||
+                action.includes(t.source) ||
+                action.includes(t.target),
+            )
+            .map((t) => `${t.source} ${t.relation} ${t.target}`);
+
+          const activeQuests = Object.values(state.questDAG)
+            .filter((q) => q.status === "active")
+            .map((q) => q.title);
+
+          const stream = await gemini.generateMainStoryStream(
+            action,
+            relevantTriplets,
+            directorNote,
+            resonanceNote,
+            collapseNote,
+            activeQuests,
+            state.currentLocation,
+          );
+
+          let fullStory = "";
+          const assistantMessageId = Date.now().toString() + Math.random();
+          setMessages((prev) => [
+            ...prev,
+            { id: assistantMessageId, role: "assistant", content: "" },
+          ]);
+
+          for await (const chunk of stream) {
+            const text = (chunk as any).text;
+            if (text) {
+              fullStory += text;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === assistantMessageId
+                    ? { ...msg, content: fullStory }
+                    : msg
+                )
+              );
+            }
           }
 
-          if (
-            updates.completedQuestIds &&
-            updates.completedQuestIds.length > 0
-          ) {
-            const newQuestDAG = { ...newState.questDAG };
-            updates.completedQuestIds.forEach((id: string) => {
-              if (newQuestDAG[id]) {
-                newQuestDAG[id].status = "completed";
+          // 5. State Extraction
+          const updates = await gemini.extractStateUpdates(fullStory, state);
+
+          setState((prev) => {
+            const newState = { ...prev };
+
+            if (updates.newItems && updates.newItems.length > 0) {
+              const itemsToAdd = updates.newItems
+                .filter((item: any) => !prev.inventory.some((i) => i.name === item.name))
+                .map((item: any) => ({
+                  id: Date.now().toString() + Math.random(),
+                  name: item.name,
+                  type: item.type as any,
+                  surfaceDescription: item.surfaceDescription,
+                  hiddenTruth: item.hiddenTruth,
+                  isUnresolvedMystery: item.isUnresolvedMystery,
+                  usageCondition: item.usageCondition,
+                }));
+              if (itemsToAdd.length > 0) {
+                newState.inventory = [...newState.inventory, ...itemsToAdd];
                 addMessage(
                   "system",
-                  `Quest Completed: ${newQuestDAG[id].title}`,
+                  `Obtained: ${itemsToAdd.map((i) => i.name).join(", ")}`,
                 );
               }
-            });
+            }
 
-            // Check for newly available quests
-            Object.keys(newQuestDAG).forEach((id) => {
-              const quest = newQuestDAG[id];
-              if (quest.status === "locked") {
-                const allDepsMet = quest.dependencies.every(
-                  (depId) => newQuestDAG[depId]?.status === "completed",
+            if (updates.newTriplets && updates.newTriplets.length > 0) {
+              newState.knowledgeGraph = [
+                ...newState.knowledgeGraph,
+                ...updates.newTriplets,
+              ];
+            }
+
+            if (updates.hpChange) {
+              newState.hp = Math.min(
+                newState.maxHp,
+                Math.max(0, newState.hp + updates.hpChange),
+              );
+              if (updates.hpChange < 0)
+                addMessage(
+                  "system",
+                  `Took ${Math.abs(updates.hpChange)} damage.`,
                 );
-                if (allDepsMet) {
-                  quest.status = "active";
-                  addMessage("system", `New Quest Available: ${quest.title}`);
+              if (updates.hpChange > 0)
+                addMessage("system", `Healed ${updates.hpChange} HP.`);
+            }
+
+            if (
+              updates.newLocation &&
+              updates.newLocation !== prev.currentLocation
+            ) {
+              newState.currentLocation = updates.newLocation;
+              addMessage("system", `Moved to: ${updates.newLocation}`);
+            }
+
+            if (
+              updates.completedQuestIds &&
+              updates.completedQuestIds.length > 0
+            ) {
+              const newQuestDAG = { ...newState.questDAG };
+              updates.completedQuestIds.forEach((id: string) => {
+                if (newQuestDAG[id]) {
+                  newQuestDAG[id].status = "completed";
+                  addMessage(
+                    "system",
+                    `Quest Completed: ${newQuestDAG[id].title}`,
+                  );
                 }
-              }
-            });
-            newState.questDAG = newQuestDAG;
-          }
+              });
 
-          return newState;
-        });
+              // Check for newly available quests
+              Object.keys(newQuestDAG).forEach((id) => {
+                const quest = newQuestDAG[id];
+                if (quest.status === "locked") {
+                  const allDepsMet = quest.dependencies.every(
+                    (depId) => !newQuestDAG[depId] || newQuestDAG[depId].status === "completed",
+                  );
+                  if (allDepsMet) {
+                    quest.status = "active";
+                    addMessage("system", `New Quest Available: ${quest.title}`);
+                  }
+                }
+              });
+              newState.questDAG = newQuestDAG;
+            }
+
+            return newState;
+          });
+        };
+
+        await Promise.race([actionPromise(), timeoutPromise]);
       } catch (error) {
         console.error("Error processing action:", error);
         addMessage(

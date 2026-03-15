@@ -2,6 +2,16 @@ import { GoogleGenAI, Type } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
+function parseJSON(text: string) {
+  try {
+    const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
+    return JSON.parse(cleaned);
+  } catch (e) {
+    console.error("Failed to parse JSON:", text, e);
+    return {};
+  }
+}
+
 // We'll use Flash for fast routing and state extraction
 export const flashModel = "gemini-3-flash-preview";
 // We'll use Pro for main story generation
@@ -79,7 +89,7 @@ If no strong resonance, return null.
   });
 
   try {
-    const result = JSON.parse(response.text || "{}");
+    const result = parseJSON(response.text || "{}");
     if (result.id && result.resonanceNote) {
       return result;
     }
@@ -127,7 +137,7 @@ Output a JSON object with:
   });
 
   try {
-    const result = JSON.parse(response.text || "{}");
+    const result = parseJSON(response.text || "{}");
     return {
       id: mysteryItem.id,
       newTruth: result.newTruth,
@@ -269,7 +279,7 @@ JSON Schema:
   });
 
   try {
-    return JSON.parse(response.text || "{}");
+    return parseJSON(response.text || "{}");
   } catch (e) {
     console.error("Failed to parse state updates", e);
     return {};
@@ -338,7 +348,7 @@ Output a JSON object with:
   });
 
   try {
-    return JSON.parse(response.text || "{}");
+    return parseJSON(response.text || "{}");
   } catch (e) {
     console.error("Failed to parse initialization", e);
     throw new Error("Failed to initialize game");
