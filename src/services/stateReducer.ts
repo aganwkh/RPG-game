@@ -23,6 +23,16 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
         } else if (delta.operation === 'set') {
           (newState.stats as any)[target] = value;
         }
+      } else if (['strength', 'agility', 'intelligence', 'charisma', 'luck'].includes(target)) {
+        if (newState.stats.attributes) {
+          if (delta.operation === 'add') {
+            (newState.stats.attributes as any)[target] = ((newState.stats.attributes as any)[target] || 10) + value;
+          } else if (delta.operation === 'subtract') {
+            (newState.stats.attributes as any)[target] = Math.max(1, ((newState.stats.attributes as any)[target] || 10) - value);
+          } else if (delta.operation === 'set') {
+            (newState.stats.attributes as any)[target] = Math.max(1, value);
+          }
+        }
       } else if (target === 'daysPassed') {
         if (delta.operation === 'add') {
           newState.daysPassed = (newState.daysPassed || 1) + value;

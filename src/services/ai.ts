@@ -116,33 +116,197 @@ const MemoryUpdateSchema = z.object({
   })).optional()
 });
 
+const DirectorUpdateSchema = z.object({
+  currentArc: z.string(),
+  globalPacing: z.enum(['slow', 'normal', 'fast']),
+  upcomingEvents: z.array(z.string()),
+  tension: z.number().min(0).max(100),
+  itemPlotHooks: z.record(z.string()).optional()
+});
+
+export const updateDirectorState = async (
+  gameState: GameState,
+  recentHistory: { action: string, story: string }[]
+): Promise<any> => {
+  const settings = getSettings();
+  
+  const systemInstruction = `你是一个文字冒险游戏的“大导演 (Narrative Director)”。
+你的核心任务是：把控宏观叙事节奏、管理故事弧线、调节玩家情绪（紧张度），并为底层剧情生成器提供精准的“剧本大纲”和“事件预告”。
+
+=== 导演核心法则 (Director's Core Heuristics) ===
+
+1. 故事弧线 (Current Arc) 管理：
+   - 弧线应该是一个有明确目标的阶段性主题（如：“暗影森林的试炼”、“寻找失踪的王女”、“酒馆的悠闲时光”）。
+   - 结合玩家当前的【任务(Quests)】和【全局总结(Summary)】，判断当前目标是否已经达成。如果达成，请顺滑地开启下一个弧线。
+
+2. 全局节奏 (Global Pacing) 控制：
+   - 'slow' (慢节奏)：适用于玩家初到新地点（需要世界观铺陈）、进行深度对话、解谜、或大战后的休整。此时底层AI会增加细节描写。
+   - 'normal' (正常)：标准的探索、战斗交替。
+   - 'fast' (快节奏)：适用于长途旅行赶路、重复性劳动、逃亡、或剧情陷入泥潭需要快速略过无聊过程直奔主题时。
+
+3. 紧张度 (Tension) 曲线 (0-100)：
+   - 遵循戏剧理论：紧张度应该像波浪一样起伏。
+   - 铺垫期 (20-40)：探索未知，发现线索。
+   - 冲突期 (50-70)：遭遇敌人，陷入困境。
+   - 高潮期 (80-100)：生死决战，核心危机爆发。
+   - 释放期 (0-20)：危机解除，获得奖励，休养生息。绝不能让紧张度一直保持在100，高潮后必须释放。
+
+4. 即将发生的事件 (Upcoming Events) 设计：
+   - 不要写空泛的事件（如“遇到怪物”），要具体且与当前弧线、地点相关（如“被追踪已久的暗影刺客在巷角伏击”）。
+   - 包含 1-3 个事件。可以是：环境突变、NPC介入、剧情反转、发现关键道具。
+   - 这些事件是给底层AI的“伏笔”提示，AI会在合适的时机触发它们。
+
+5. 契诃夫之枪：物品宿命 (Item Plot Hooks) 管理：
+   - 检查玩家背包中的物品。如果发现有“神秘的”、“未知的”或“具有潜力的”关键剧情物品（排除普通消耗品如药水、铁剑），你需要为它赋予一个【隐藏的宿命/伏笔 (plotHook)】。
+   - 例如：玩家获得“黯淡的碎片”，你可以为其赋予 plotHook：“当靠近深渊之门时会发热并指引方向”。
+   - 在规划 Upcoming Events 时，请尽量创造条件去触发这些已有 plotHook 的物品，让剧情形成闭环。
+
+OUTPUT RULES:
+- Keep the output concise.
+- MUST be strictly in Simplified Chinese.`;
+
+  const historyText = recentHistory.map(h => `Action: ${h.action}\nStory: ${h.story}`).join('\n\n');
+  const summary = gameState.memory?.summary || '故事刚刚开始。';
+  const location = gameState.location || '未知';
+  const quests = gameState.quests?.map(q => `${q.name} (${q.status})`).join(', ') || '无';
+  const inventory = gameState.inventory?.join(', ') || '空';
+  const currentPlotHooks = gameState.director?.itemPlotHooks ? JSON.stringify(gameState.director.itemPlotHooks) : '{}';
+
+  const provider = settings.bgProvider || settings.provider || 'default';
+  const baseUrl = settings.bgBaseUrl || settings.baseUrl;
+  const apiKey = settings.bgApiKey || settings.apiKey;
+  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
+
+  const prompt = `【当前游戏宏观状态】
+当前位置: ${location}
+当前任务: ${quests}
+全局故事总结:
+${summary}
+
+【当前导演状态】
+当前弧线: ${gameState.director?.currentArc || '无'}
+当前节奏: ${gameState.director?.globalPacing || 'normal'}
+当前紧张度: ${gameState.director?.tension || 10}
+之前计划的事件: ${gameState.director?.upcomingEvents?.join(', ') || '无'}
+
+【玩家背包与物品宿命】
+当前背包: ${inventory}
+已有的物品宿命 (Plot Hooks): ${currentPlotHooks}
+
+【最近的玩家行动与剧情】
+${historyText}
+
+请作为大导演，深度分析上述信息：
+1. 玩家的行动是否推动了主线？结合任务和总结，是否需要开启新弧线？
+2. 当前的叙事节奏是否合适？
+3. 紧张度是否需要调整？
+4. 接下来该安排什么具体的戏剧性事件来吸引玩家？（尝试结合背包中带有 plotHook 的物品）
+5. 检查背包中的物品，是否有需要新增或更新 plotHook 的关键物品？（保留已有的，添加新的，剔除已经不在背包里的）
+
+请返回更新后的导演状态 JSON。`;
+
+  let parsedDirector: any = gameState.director || { currentArc: '序章', globalPacing: 'normal', upcomingEvents: [], tension: 10, itemPlotHooks: {} };
+
+  try {
+    if (provider === 'custom' && baseUrl && apiKey) {
+      const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+{
+  "currentArc": "string",
+  "globalPacing": "slow" | "normal" | "fast",
+  "upcomingEvents": ["string"],
+  "tension": number (0-100),
+  "itemPlotHooks": { "itemName": "plot hook description" }
+}`;
+
+      const data = await customApiFetch('/chat/completions', {
+        messages: [
+          { role: 'system', content: customSystemInstruction },
+          { role: 'user', content: prompt }
+        ],
+        response_format: { type: 'json_object' }
+      }, { isBackground: true });
+
+      const content = data.choices[0].message.content;
+      parsedDirector = parseJSONResponse(content);
+    } else {
+      const ai = getAI();
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite-preview',
+        contents: prompt,
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              currentArc: { type: Type.STRING, description: 'Current story arc name.' },
+              globalPacing: { type: Type.STRING, description: 'Pacing: slow, normal, or fast.' },
+              upcomingEvents: { type: Type.ARRAY, items: { type: Type.STRING }, description: '1-3 upcoming events.' },
+              tension: { type: Type.NUMBER, description: 'Tension level from 0 to 100.' },
+              itemPlotHooks: { type: Type.OBJECT, description: 'Map of item names to their hidden plot hooks/destinies.' }
+            },
+            required: ['currentArc', 'globalPacing', 'upcomingEvents', 'tension', 'itemPlotHooks']
+          }
+        }
+      });
+
+      parsedDirector = parseJSONResponse(response.text || '{}');
+    }
+    
+    // Ensure itemPlotHooks exists
+    if (!parsedDirector.itemPlotHooks) {
+      parsedDirector.itemPlotHooks = gameState.director?.itemPlotHooks || {};
+    }
+
+    parsedDirector = DirectorUpdateSchema.parse(parsedDirector);
+  } catch (err) {
+    console.error("Failed to parse or validate director update:", err);
+  }
+  
+  return parsedDirector;
+};
+
 export const updateGameMemory = async (
   currentMemory: MemoryState,
   recentHistory: { action: string, story: string }[]
 ): Promise<MemoryState> => {
   const settings = getSettings();
-  const systemInstruction = `You are the background world-building and memory management engine for a text-based RPG.
-Your task is to analyze the recent story history and meticulously update the game's memory state.
+  const systemInstruction = `你是一个文字冒险游戏的“世界观架构师 (Worldbuilder)”与“记忆管理员”。
+你的核心任务是：从玩家最近的经历中，精准提取【值得被永久铭记的世界设定】，并更新【主线剧情摘要】。
 
-=== 核心逻辑一：剧情摘要 (Summary) 的判断与更新 ===
-1. 评估阈值：判断最新剧情是否发生了以下“里程碑事件”：
-   - 跨越区域或进入新场景。
-   - 获得关键任务、完成任务或任务失败。
-   - 遭遇重要 Boss、角色濒死或触发奇迹。
-   - 揭露重大阴谋、重要 NPC 死亡或结盟。
+=== 核心逻辑一：世界书 (Worldbook/Lorebook) 的严苛准入法则 ===
+世界书是游戏的“设定集”，它的容量极其宝贵。你必须像一个严苛的编辑，决定什么该写，什么绝对不该写。
+
+【绝对禁止写入世界书的内容】 (DO NOT INCLUDE):
+1. 一次性消耗品或普通装备（如：铁剑、回复药水、普通的金币、随处可见的草药）。
+2. 龙套角色与随机遇敌（如：无名酒馆老板、路人村民A、被秒杀的野生哥布林、普通的强盗）。
+3. 玩家的短暂行为或流水账（如：“玩家走进了房间”、“玩家吃了一顿饭”、“玩家挥舞了剑”——这些属于剧情摘要，绝不是世界设定）。
+4. 临时状态或天气（如：“今天下大雨”、“哥布林正在睡觉”、“门被锁上了”）。
+5. 具体的战斗数值或游戏机制（如：“造成了50点伤害”）。
+
+【必须写入世界书的内容】 (MUST INCLUDE):
+1. 核心/宿命级 NPC：有名字、有独特背景、且未来极大概率再次互动的角色（如：发布主线任务的导师、宿敌、掌握关键情报的神秘人、阵营领袖）。
+2. 传奇/剧情道具：带有深厚历史背景、独特魔法机制、或推动主线发展的唯一性物品（如：封印魔王的“星辰护符”、能听懂人话的“诅咒魔剑”、失落的王国地图）。
+3. 关键地标与区域：有独特生态、阵营势力或隐藏规则的地点（如：“暗影兄弟会”的地下集会所、终年被毒雾笼罩的“叹息沼泽”、遗忘之城）。
+4. 世界法则与派系：新揭露的魔法规则、历史神话、或活跃的组织势力（如：血魔法的代价、星辰教团的教义）。
+
+【词条撰写规范】：
+- 提取 1-3 个最精准的触发关键词（keywords）。
+- 内容 (content) 必须是客观、凝练的“设定描述”，而不是讲故事。
+  - 人物：身份 + 核心动机/性格 + 目前与玩家的关系。
+  - 物品：外观 + 独特机制/副作用 + 历史渊源。
+  - 地点：环境特征 + 统治势力/危险程度。
+
+=== 核心逻辑二：世界书的动态更新 (State Update) ===
+仔细对比传入的【相关的已有世界书词条 (Relevant Current Lorebook Entries)】。
+如果最新剧情导致某个人物死亡、某件神器破碎、或某个地点的统治者更替，你必须返回修改后的词条。
+【增量更新原则】：你只需要返回**发生状态改变的旧词条**以及**全新提取的新词条**。**绝对不要**返回没有发生变化的旧词条。
+
+=== 核心逻辑三：剧情摘要 (Summary) 的判断与更新 ===
+1. 评估阈值：判断最新剧情是否发生了“里程碑事件”（如：跨越区域、完成/获得关键任务、遭遇Boss、揭露重大阴谋、结盟或背叛）。
 2. 执行更新：
-   - 【若是里程碑】：将新事件用极简的“起因+结果”概括，追加到原有的 summary 中。剔除具体的战斗数值或无意义的日常对话。
+   - 【若是里程碑】：将新事件用极简的“起因+结果”概括，追加到原有的 summary 中。
    - 【若非里程碑】（如普通打怪、赶路、闲聊）：严格原样返回输入的 summary，绝对禁止做任何修改。
-
-=== 核心逻辑二：世界书 (worldInfo) 的自动提取与完善 ===
-1. 实体识别：扫描最近的剧情，提取具有独特背景设定的专有名词（必须忽略普通铁剑、回复药水、村民A等通用词汇）。
-2. 词条生成与更新模板：如果发现符合条件的实体，提取其 1-3 个触发关键词（keywords），并严格按以下模板撰写内容（content）：
-   - 【道具/物品】：功能机制 + 外观描述 + 历史来历或隐藏副作用。（例如：“功能：抵挡致命一击。外观：布满裂纹的黑色护身符。来历：古老祭坛发现的诅咒之物。”）
-   - 【角色/NPC】：身份地位 + 核心性格或外貌特征 + 当前对玩家的态度。
-   - 【场景/地点】：环境特征 + 已知资源 + 潜在威胁。
-   - 【事件/派系】：核心理念/内容 + 对世界观或玩家的潜在影响。
-3. 状态覆盖：仔细对比传入的 Relevant Current Lorebook Entries。如果最新剧情改变了这些实体的状态（例如某道具损坏、某 NPC 态度转变），你必须返回修改后的词条。
-4. 增量更新：你只需要返回**发生状态改变的旧词条**以及**全新提取的新词条**。**绝对不要**返回没有发生变化的旧词条。
 
 OUTPUT RULES:
 - Keep the output concise.
@@ -173,15 +337,23 @@ OUTPUT RULES:
     }
   }
 
-  const prompt = `Current Summary: ${currentMemory.summary || 'None'}
-Relevant Current Lorebook Entries: ${relevantWorldbook.length > 0 ? JSON.stringify(relevantWorldbook.map(e => ({ keywords: e.keywords, content: e.content }))) : 'None'}
+  const prompt = `【当前剧情摘要 (Current Summary)】:
+${currentMemory.summary || '无'}
 
-Recent 5 Turns History:
+【相关的已有世界书词条 (Relevant Current Lorebook Entries)】:
+${relevantWorldbook.length > 0 ? JSON.stringify(relevantWorldbook.map(e => ({ keywords: e.keywords, content: e.content }))) : '无'}
+
+【最近 5 回合的剧情记录 (Recent 5 Turns History)】:
 ${historyText}
 
-Analyze the recent history. 
-1. Update the Summary if milestone events occurred.
-2. Return the UPDATED Relevant Lorebook Entries (if their state changed) PLUS any completely NEW entries. Do NOT return entries that did not change.`;
+请作为世界观架构师，深度分析上述剧情：
+1. 剧情摘要 (Summary)：是否发生了里程碑事件？如果是，请追加更新；如果不是，请原样返回。
+2. 世界书 (Worldbook)：
+   - 严格按照【准入法则】过滤，提取全新的重要设定（传奇物品、关键NPC、重要地点等）。
+   - 检查【相关的已有世界书词条】，如果它们的状态在最新剧情中发生了重大改变（如NPC死亡、地点被毁），请更新它们。
+   - 仅返回新增和被修改的词条。未发生改变的词条请勿返回。
+
+请返回 JSON 格式的更新结果。`;
 
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
@@ -519,15 +691,19 @@ Respond ONLY with a valid JSON object matching this schema:
 };
 
 
-export const generateItemDescription = async (itemName: string, context: string): Promise<string> => {
+export const generateItemDescription = async (itemName: string, context: string, plotHook?: string): Promise<string> => {
   const settings = getSettings();
-  const prompt = `
-You are a lore-master in a fantasy text adventure game.
-The player has found an item: "${itemName}".
-Current context of the game: "${context}"
+  const plotHookInstruction = plotHook 
+    ? `\n【契诃夫之枪：隐藏宿命】\n这个物品在未来的剧情中有一个隐藏的宿命/伏笔："${plotHook}"。\n请在描述中**隐晦地暗示**这个宿命（例如通过它散发的气息、特殊的纹理、或某种共鸣），但不要直接剧透。` 
+    : '';
 
-Write a short, immersive, and flavorful description for this item (max 2 sentences).
-Focus on its appearance, potential use, or mysterious aura.
+  const prompt = `
+你是一个奇幻文字冒险游戏的“物品鉴定师 (Lore-master)”。
+玩家获得了一个物品："${itemName}"。
+当前游戏背景/任务："${context}"${plotHookInstruction}
+
+请为这个物品写一段简短、沉浸且充满风味的描述（最多2句话）。
+重点描述它的外观、潜在用途、或神秘的氛围。
 IMPORTANT: The description MUST be written in Simplified Chinese.
   `;
 

@@ -67,6 +67,14 @@ export interface NpcState {
   isAlive: boolean;
 }
 
+export interface DirectorState {
+  currentArc: string;
+  globalPacing: 'slow' | 'normal' | 'fast';
+  upcomingEvents: string[];
+  tension: number;
+  itemPlotHooks?: Record<string, string>;
+}
+
 export interface GameState {
   version?: string;
   storyText: string;
@@ -79,6 +87,7 @@ export interface GameState {
   location: string;
   stats: CharacterStats;
   memory?: MemoryState;
+  director?: DirectorState;
   logs?: LogEntry[];
   combatLogs?: string[];
   recentHistory?: { action: string, story: string }[];

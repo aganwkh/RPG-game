@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Backpack, Scroll, User, Settings, Save, Download, Upload, Heart, Coins, Star, Loader2, X, MapPin, Compass, BookOpen, Zap, Swords, Wind, Brain, Sparkles, Gem } from 'lucide-react';
+import { Backpack, Scroll, User, Settings, Save, Download, Upload, Heart, Coins, Star, Loader2, X, MapPin, Compass, BookOpen, Zap, Swords, Wind, Brain, Sparkles, Gem, Clapperboard } from 'lucide-react';
 import { CharacterStats, Skill, Quest, NpcState } from '../types';
 import { generateItemDescription, generateSkillDescription } from '../services/ai';
 import { motion, AnimatePresence } from 'motion/react';
@@ -10,6 +10,7 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenWorldbook: () => void;
   onOpenLogs: () => void;
+  onOpenDirector: () => void;
   onSave: () => void;
   onLoad: () => void;
   onExport: () => void;
@@ -20,7 +21,7 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onOpenDirector, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
   const inventory = useGameStore(state => state.inventory);
   const skills = useGameStore(state => state.skills);
   const skillCooldowns = useGameStore(state => state.skillCooldowns);
@@ -28,6 +29,7 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
   const npcStates = useGameStore(state => state.npcStates);
   const location = useGameStore(state => state.location);
   const stats = useGameStore(state => state.stats);
+  const director = useGameStore(state => state.director);
   const [itemDescriptions, setItemDescriptions] = useState<Record<string, string>>({});
   const [skillDescriptions, setSkillDescriptions] = useState<Record<string, string>>({});
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -108,7 +110,8 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
     setLoadingItems(prev => new Set(prev).add(item));
     
     try {
-      const desc = await generateItemDescription(item, quests.length > 0 ? quests[0].name : '');
+      const plotHook = director?.itemPlotHooks?.[item];
+      const desc = await generateItemDescription(item, quests.length > 0 ? quests[0].name : '', plotHook);
       
       setItemDescriptions(prev => {
         const next = { ...prev, [item]: desc };
@@ -177,13 +180,22 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
           <div>
             <h1 className="text-2xl font-serif font-semibold tracking-wide text-zinc-100 flex items-center gap-3">
               编年史
-              <button 
-                onClick={onOpenWorldbook}
-                className="p-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors group"
-                title="打开世界书与记忆"
-              >
-                <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
-              </button>
+              <div className="flex gap-1">
+                <button 
+                  onClick={onOpenWorldbook}
+                  className="p-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 rounded-lg transition-colors group"
+                  title="打开世界书与记忆"
+                >
+                  <BookOpen className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                </button>
+                <button 
+                  onClick={onOpenDirector}
+                  className="p-1.5 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 rounded-lg transition-colors group"
+                  title="打开大导演 (故事大纲)"
+                >
+                  <Clapperboard className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                </button>
+              </div>
             </h1>
             <p className="text-xs text-indigo-400/80 uppercase tracking-[0.2em] mt-2">无尽冒险</p>
           </div>
@@ -538,7 +550,10 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
                 >
                   <div className="glass-panel px-5 py-3.5 rounded-xl text-sm text-zinc-300 flex items-center gap-3 hover:bg-white/5 transition-colors cursor-help">
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-500/50 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
-                    <span className="font-serif">{item}</span>
+                    <span className="font-serif flex-1">{item}</span>
+                    {director?.itemPlotHooks?.[item] && (
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400/80 animate-pulse" title="命运之物" />
+                    )}
                   </div>
                   
                   {/* Tooltip */}
@@ -563,9 +578,19 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onSave, o
                               <span>正在鉴定...</span>
                             </div>
                           ) : (
-                            <p className="text-zinc-400 text-xs leading-relaxed font-serif">
-                              {itemDescriptions[item] || '一个神秘的物品。'}
-                            </p>
+                            <div className="space-y-2">
+                              <p className="text-zinc-400 text-xs leading-relaxed font-serif">
+                                {itemDescriptions[item] || '一个神秘的物品。'}
+                              </p>
+                              {director?.itemPlotHooks?.[item] && (
+                                <div className="pt-2 border-t border-white/5">
+                                  <p className="text-amber-500/80 text-[10px] italic font-serif leading-relaxed">
+                                    <Sparkles className="w-3 h-3 inline-block mr-1 -mt-0.5" />
+                                    {director.itemPlotHooks[item]}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       </motion.div>

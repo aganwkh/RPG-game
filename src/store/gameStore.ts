@@ -41,6 +41,12 @@ const defaultInitialState: GameState = {
     summary: '',
     worldInfo: []
   },
+  director: {
+    currentArc: '序章：未知的起点',
+    globalPacing: 'normal',
+    upcomingEvents: ['发现第一个线索', '遭遇初级敌人'],
+    tension: 10
+  },
   logs: [],
   combatLogs: [],
   recentHistory: [],

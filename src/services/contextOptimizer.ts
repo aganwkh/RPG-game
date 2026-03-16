@@ -29,6 +29,21 @@ Location: ${gameState.location || 'Unknown'}
     context += `[STORY SUMMARY]\n${gameState.memory.summary}\n\n`;
   }
 
+  // 3.5 Director State (Must keep)
+  if (gameState.director) {
+    context += `[DIRECTOR'S INSTRUCTIONS]
+Current Story Arc: ${gameState.director.currentArc}
+Global Pacing: ${gameState.director.globalPacing}
+Upcoming Events: ${gameState.director.upcomingEvents.join(', ')}
+Tension Level: ${gameState.director.tension}/100
+Please adjust your storytelling style, pacing, and event triggers to align with the Director's instructions.
+If tension is high, make the tone more urgent and dangerous.
+If pacing is fast, skip minor details and jump to the next major event.
+If pacing is slow, focus on world-building, character interactions, and atmosphere.
+Try to naturally weave the "Upcoming Events" into the story if the player's actions allow it.
+\n`;
+  }
+
   // 4. Dynamic Worldbook & NPCs (Retrieve based on action and recent history)
   const recentText = (gameState.storyText || '') + ' ' + action;
   

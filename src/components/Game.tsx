@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { generateStoryStream, extractStateUpdates, updateGameMemory } from '../services/ai';
+import { generateStoryStream, extractStateUpdates, updateGameMemory, updateDirectorState } from '../services/ai';
 import { applyStateUpdates } from '../services/stateReducer';
 import { backgroundTaskQueue } from '../services/taskQueue';
 import { GameState, LogEntry } from '../types';
@@ -8,6 +8,7 @@ import { StoryView } from './StoryView';
 import { SettingsModal } from './SettingsModal';
 import { LogsModal } from './LogsModal';
 import { WorldbookModal } from './WorldbookModal';
+import { DirectorModal } from './DirectorModal';
 import { Loader2, Menu, MapPin, Heart, Coins, Scroll } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { get as idbGet, set as idbSet } from 'idb-keyval';
@@ -25,6 +26,7 @@ export function Game() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isWorldbookOpen, setIsWorldbookOpen] = useState(false);
+  const [isDirectorOpen, setIsDirectorOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
@@ -259,10 +261,9 @@ export function Game() {
       // Asynchronously update memory every 5 turns
       const currentState = useGameStore.getState();
       const choiceLogs = currentState.logs?.filter(l => l.type === 'choice') || [];
-      if (choiceLogs.length > 0 && choiceLogs.length % 5 === 0) {
+      
+      if (choiceLogs.length > 0) {
         const recentHistory = currentState.recentHistory || [];
-        
-        // Token budget control: Truncate history by character length (max 2000 chars)
         const historyToPass = [];
         let currentLength = 0;
         for (let i = recentHistory.length - 1; i >= 0; i--) {
@@ -274,19 +275,24 @@ export function Game() {
           historyToPass.unshift(entry);
           currentLength += entryLength;
         }
-        
-        backgroundTaskQueue.enqueue(() => updateGameMemory(currentState.memory || { summary: '', worldInfo: [] }, historyToPass))
-          .then(updatedMemory => {
-            setGameState(current => {
-              return {
-                ...current,
-                memory: updatedMemory
-              };
-            });
-          })
-          .catch(err => {
-            console.error('Failed to update memory:', err);
-          });
+
+        // Update memory every 5 turns
+        if (choiceLogs.length % 5 === 0) {
+          backgroundTaskQueue.enqueue(() => updateGameMemory(currentState.memory || { summary: '', worldInfo: [] }, historyToPass))
+            .then(updatedMemory => {
+              setGameState(current => ({ ...current, memory: updatedMemory }));
+            })
+            .catch(err => console.error('Failed to update memory:', err));
+        }
+
+        // Update director every 3 turns
+        if (choiceLogs.length % 3 === 0) {
+          backgroundTaskQueue.enqueue(() => updateDirectorState(currentState, historyToPass))
+            .then(updatedDirector => {
+              setGameState(current => ({ ...current, director: updatedDirector }));
+            })
+            .catch(err => console.error('Failed to update director:', err));
+        }
       }
 
     } catch (err: any) {
@@ -436,6 +442,7 @@ export function Game() {
         onOpenSettings={() => { setIsSettingsOpen(true); setIsSidebarOpen(false); }}
         onOpenWorldbook={() => { setIsWorldbookOpen(true); setIsSidebarOpen(false); }}
         onOpenLogs={() => { setIsLogsOpen(true); setIsSidebarOpen(false); }}
+        onOpenDirector={() => { setIsDirectorOpen(true); setIsSidebarOpen(false); }}
         onSave={saveGame}
         onLoad={loadGame}
         onExport={exportSave}
@@ -517,6 +524,7 @@ export function Game() {
 
       <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <LogsModal isOpen={isLogsOpen} onClose={() => setIsLogsOpen(false)} logs={gameState?.logs || []} />
+      <DirectorModal isOpen={isDirectorOpen} onClose={() => setIsDirectorOpen(false)} director={gameState?.director} />
       <WorldbookModal
         isOpen={isWorldbookOpen}
         onClose={() => setIsWorldbookOpen(false)}
