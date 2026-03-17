@@ -3,9 +3,10 @@ import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState
 import { customApiFetch, customApiFetchStream, fetchWithRetry, getSettings } from './httpClient';
 import { z } from 'zod';
 
-const getAI = () => {
+const getAI = (customApiKey?: string) => {
+  const settings = getSettings();
   // @ts-ignore
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : '');
+  const apiKey = customApiKey || settings.apiKey || import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : '');
   return new GoogleGenAI({ apiKey: (apiKey as string) || 'dummy_key_to_prevent_crash' });
 };
 
@@ -58,7 +59,7 @@ export const getEmbedding = async (text: string): Promise<number[]> => {
     return data.data[0].embedding;
   }
 
-  const ai = getAI();
+  const ai = getAI(apiKey);
   const result = await ai.models.embedContent({
     model: 'text-embedding-004',
     contents: text
@@ -71,20 +72,19 @@ export const regenerateSummary = async (
   recentLogs: string[]
 ): Promise<string> => {
   const settings = getSettings();
-  const systemInstruction = `You are a summarization engine for a text-based RPG.
-Your task is to take the current summary and a list of recent events, and combine them into a single, cohesive, and concise long-term summary.
-Keep the output strictly in Simplified Chinese.`;
+  const systemInstruction = `你是一个文字冒险游戏的总结引擎。
+你的任务是将当前的总结和最近的事件列表结合起来，生成一个连贯、简洁的长期故事总结。
+请严格使用简体中文输出。`;
 
-  const prompt = `Current Summary: ${currentSummary || 'None'}
-Recent Events:
+  const prompt = `当前总结: ${currentSummary || '无'}
+最近事件:
 ${recentLogs.join('\n')}
 
-Generate the updated summary.`;
+请生成更新后的总结。`;
 
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
   const apiKey = settings.bgApiKey || settings.apiKey;
-  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
   if (provider === 'custom' && baseUrl && apiKey) {
     const data = await customApiFetch('/chat/completions', {
@@ -96,7 +96,7 @@ Generate the updated summary.`;
     return data.choices[0].message.content.trim();
   }
 
-  const ai = getAI();
+  const ai = getAI(apiKey);
   const response = await ai.models.generateContent({
     model: 'gemini-3.1-flash-lite-preview',
     contents: prompt,
@@ -118,7 +118,7 @@ const MemoryUpdateSchema = z.object({
 
 const DirectorUpdateSchema = z.object({
   currentArc: z.string(),
-  globalPacing: z.enum(['slow', 'normal', 'fast']),
+  globalPacing: z.string(),
   upcomingEvents: z.array(z.string()),
   tension: z.number().min(0).max(100),
   itemPlotHooks: z.record(z.string()).optional()
@@ -161,11 +161,11 @@ export const updateDirectorState = async (
    - 例如：玩家获得“黯淡的碎片”，你可以为其赋予 plotHook：“当靠近深渊之门时会发热并指引方向”。
    - 在规划 Upcoming Events 时，请尽量创造条件去触发这些已有 plotHook 的物品，让剧情形成闭环。
 
-OUTPUT RULES:
-- Keep the output concise.
-- MUST be strictly in Simplified Chinese.`;
+=== 输出规则 ===
+- 保持输出简洁。
+- 必须严格使用简体中文。`;
 
-  const historyText = recentHistory.map(h => `Action: ${h.action}\nStory: ${h.story}`).join('\n\n');
+  const historyText = recentHistory.map(h => `玩家行动: ${h.action}\n故事: ${h.story}`).join('\n\n');
   const summary = gameState.memory?.summary || '故事刚刚开始。';
   const location = gameState.location || '未知';
   const quests = gameState.quests?.map(q => `${q.name} (${q.status})`).join(', ') || '无';
@@ -175,7 +175,6 @@ OUTPUT RULES:
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
   const apiKey = settings.bgApiKey || settings.apiKey;
-  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
   const prompt = `【当前游戏宏观状态】
 当前位置: ${location}
@@ -209,7 +208,7 @@ ${historyText}
 
   try {
     if (provider === 'custom' && baseUrl && apiKey) {
-      const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+      const customSystemInstruction = systemInstruction + `\n\n你必须仅返回一个有效的 JSON 对象，其结构完全如下：
 {
   "currentArc": "string",
   "globalPacing": "slow" | "normal" | "fast",
@@ -229,7 +228,7 @@ ${historyText}
       const content = data.choices[0].message.content;
       parsedDirector = parseJSONResponse(content);
     } else {
-      const ai = getAI();
+      const ai = getAI(apiKey);
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-preview',
         contents: prompt,
@@ -284,7 +283,7 @@ export const updateGameMemory = async (
 4. 临时状态或天气（如：“今天下大雨”、“哥布林正在睡觉”、“门被锁上了”）。
 5. 具体的战斗数值或游戏机制（如：“造成了50点伤害”）。
 
-【必须写入世界书的内容】 (MUST INCLUDE):
+【必须写入世界书的内容】 (必须包含):
 1. 核心/宿命级 NPC：有名字、有独特背景、且未来极大概率再次互动的角色（如：发布主线任务的导师、宿敌、掌握关键情报的神秘人、阵营领袖）。
 2. 传奇/剧情道具：带有深厚历史背景、独特魔法机制、或推动主线发展的唯一性物品（如：封印魔王的“星辰护符”、能听懂人话的“诅咒魔剑”、失落的王国地图）。
 3. 关键地标与区域：有独特生态、阵营势力或隐藏规则的地点（如：“暗影兄弟会”的地下集会所、终年被毒雾笼罩的“叹息沼泽”、遗忘之城）。
@@ -308,11 +307,11 @@ export const updateGameMemory = async (
    - 【若是里程碑】：将新事件用极简的“起因+结果”概括，追加到原有的 summary 中。
    - 【若非里程碑】（如普通打怪、赶路、闲聊）：严格原样返回输入的 summary，绝对禁止做任何修改。
 
-OUTPUT RULES:
-- Keep the output concise.
-- MUST be strictly in Simplified Chinese.`;
+=== 输出规则 ===
+- 保持输出简洁。
+- 必须严格使用简体中文。`;
 
-  const historyText = recentHistory.map(h => `Action: ${h.action}\nStory: ${h.story}`).join('\n\n');
+  const historyText = recentHistory.map(h => `玩家行动: ${h.action}\n故事: ${h.story}`).join('\n\n');
 
   // Retrieve relevant lorebook entries using RAG
   let relevantWorldbook: any[] = [];
@@ -337,13 +336,13 @@ OUTPUT RULES:
     }
   }
 
-  const prompt = `【当前剧情摘要 (Current Summary)】:
+  const prompt = `【当前剧情摘要】:
 ${currentMemory.summary || '无'}
 
-【相关的已有世界书词条 (Relevant Current Lorebook Entries)】:
+【相关的已有世界书词条】:
 ${relevantWorldbook.length > 0 ? JSON.stringify(relevantWorldbook.map(e => ({ keywords: e.keywords, content: e.content }))) : '无'}
 
-【最近 5 回合的剧情记录 (Recent 5 Turns History)】:
+【最近 5 回合的剧情记录】:
 ${historyText}
 
 请作为世界观架构师，深度分析上述剧情：
@@ -358,13 +357,12 @@ ${historyText}
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
   const apiKey = settings.bgApiKey || settings.apiKey;
-  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
   let parsedMemory: any = { summary: currentMemory.summary, worldInfo: [] };
 
   try {
     if (provider === 'custom' && baseUrl && apiKey) {
-      const customSystemInstruction = systemInstruction + `\n\nYou MUST return ONLY a valid JSON object with the exact following structure:
+      const customSystemInstruction = systemInstruction + `\n\n你必须仅返回一个有效的 JSON 对象，其结构完全如下：
 {
   "summary": "string",
   "worldInfo": [
@@ -383,7 +381,7 @@ ${historyText}
       const content = data.choices[0].message.content;
       parsedMemory = parseJSONResponse(content);
     } else {
-      const ai = getAI();
+      const ai = getAI(apiKey);
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-preview',
         contents: prompt,
@@ -475,28 +473,28 @@ export const generateStoryStream = async function* (
   action: string
 ): AsyncGenerator<string, void, unknown> {
   const settings = getSettings();
-  const systemInstruction = `You are an expert text adventure game master.
-Advance the story based on the player's action.
-Write 3-4 paragraphs of immersive, descriptive text.
-Include sensory details, character thoughts, and dynamic action.
-Use formatting tags frequently to highlight key elements, emotions, and actions.
-Available colors: [red], [blue], [green], [yellow], [purple], [indigo], [orange], [gold], [cyan], [pink], [teal], [lime], [fuchsia], [rose], [sky], [amber], [gray], [white], [black].
-Available animations: [wave], [shake], [glitch], [pulse], [bounce], [spin], [float], [flicker], [glow].
-Example: [red]鲜血[/red]四溅，大地开始[shake]剧烈震动[/shake]！
-You can also use Chinese translated tags like [红色], [震动], 【蓝色】, 【发光】.
+  const systemInstruction = `你是一位专业的文字冒险游戏大师（Game Master）。
+请根据玩家的行动推进故事。
+编写 3-4 段沉浸式、富有描述性的文本。
+包含感官细节、角色想法和动态动作。
+频繁使用格式化标签来突出关键元素、情感和动作。
+可用颜色：[red], [blue], [green], [yellow], [purple], [indigo], [orange], [gold], [cyan], [pink], [teal], [lime], [fuchsia], [rose], [sky], [amber], [gray], [white], [black]。
+可用动画：[wave], [shake], [glitch], [pulse], [bounce], [spin], [float], [flicker], [glow]。
+示例：[red]鲜血[/red]四溅，大地开始[shake]剧烈震动[/shake]！
+你也可以使用中文翻译的标签，如 [红色], [震动], 【蓝色】, 【发光】。
 
 === 游戏节奏与配速控制 (PACING RULES) ===
 1. 动态时间流逝：不要拘泥于微观动作。如果玩家决定“前往某个遥远的城市”、“清理营地里的地精”或“寻找三株草药”，你应该在一段文本内使用蒙太奇手法（Montage）快进这段过程，直接描述他们到达目的地或完成任务后的结果。
 2. 避免拖沓：绝对禁止让玩家进行无意义的“走路模拟”。如果旅途没有重大突发剧情，请直接推进到下一个有意义的决策点。
 3. 选项收束：你提供的 CHOICES 必须推动剧情发展，避免出现“继续走”、“看看四周”这种原地踏步的废话选项。
 
-CRITICAL: At the very end of your response, you MUST provide 2-4 choices for the player, formatted exactly like this:
-CHOICES:
-1. [Choice 1]
-2. [Choice 2]
-3. [Choice 3]
+关键要求: 在回复的最后，你必须为玩家提供 2-4 个选项，格式必须完全如下：
+选项:
+1. [选项 1]
+2. [选项 2]
+3. [选项 3]
 
-Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
+请使用简体中文回复。不要输出 JSON。输出纯文本。`;
 
   const { buildOptimizedContext } = await import('./contextOptimizer');
   const context = await buildOptimizedContext(gameState, action, systemInstruction);
@@ -517,7 +515,7 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
       const response = await customApiFetchStream('/chat/completions', {
         messages: [
           { role: 'system', content: systemInstruction },
-          { role: 'user', content: context + `\n\nPlayer Action: ${action}` }
+          { role: 'user', content: context + `\n\n玩家行动: ${action}` }
         ],
         stream: true
       }, { signal: abortController.signal });
@@ -558,10 +556,10 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
     return;
   }
 
-  const ai = getAI();
+  const ai = getAI(settings.apiKey);
   const responseStream = await ai.models.generateContentStream({
     model: 'gemini-3.1-pro-preview',
-    contents: context + `\n\nPlayer Action: ${action}`,
+    contents: context + `\n\n玩家行动: ${action}`,
     config: { systemInstruction }
   });
 
@@ -572,12 +570,12 @@ Respond in Simplified Chinese. Do NOT output JSON. Output raw text.`;
 
 const StateDeltaSchema = z.object({
   statDeltas: z.array(z.object({
-    target: z.enum(['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed']),
-    operation: z.enum(['add', 'subtract', 'set']),
+    target: z.string(),
+    operation: z.string(),
     value: z.number()
   })).optional(),
   inventoryDeltas: z.array(z.object({
-    operation: z.enum(['add', 'remove']),
+    operation: z.string(),
     item: z.string()
   })).optional(),
   newLocation: z.string().optional(),
@@ -591,7 +589,7 @@ const StateDeltaSchema = z.object({
     id: z.string(),
     name: z.string(),
     step: z.number().optional(),
-    status: z.enum(['active', 'completed', 'failed']).optional()
+    status: z.string().optional()
   })).optional(),
   npcUpdates: z.array(z.object({
     name: z.string(),
@@ -601,7 +599,7 @@ const StateDeltaSchema = z.object({
   logs: z.array(z.object({
     id: z.string(),
     timestamp: z.number(),
-    type: z.enum(['event', 'combat', 'item']),
+    type: z.string(),
     text: z.string()
   })).optional(),
   isGameOver: z.boolean().optional()
@@ -613,25 +611,25 @@ export const extractStateUpdates = async (
   storyText: string
 ): Promise<any> => {
   const settings = getSettings();
-  const prompt = `Based on the latest story event, extract any state changes using deltas (add/subtract/set).
+  const prompt = `请根据最新的故事事件，使用增量（add/subtract/set）提取任何状态变化。
 
-=== 动态奖励缩放规则 (Reward Scaling Guidelines) ===
-请务必根据刚才发生的事件规模（Magnitude），动态决定经验值（exp）和金币（gold）的发放量：
-- 【微小动作 Minor】（如：闲聊、观察、赶路）：0-5 exp, 0 gold。
-- 【常规动作 Moderate】（如：战胜普通怪物、发现小宝箱、解开小谜题）：20-50 exp, 10-50 gold。
-- 【重大成就 Major】（如：经历长途旅行到达新城镇、击败精英怪/Boss、完成任务关键步骤）：100-300 exp, 100-500 gold。
+=== 动态奖励缩放规则 ===
+请务必根据刚才发生的事件规模，动态决定经验值（exp）和金币（gold）的发放量：
+- 【微小动作】（如：闲聊、观察、赶路）：0-5 exp, 0 gold。
+- 【常规动作】（如：战胜普通怪物、发现小宝箱、解开小谜题）：20-50 exp, 10-50 gold。
+- 【重大成就】（如：经历长途旅行到达新城镇、击败精英怪/Boss、完成任务关键步骤）：100-300 exp, 100-500 gold。
 
-=== 任务进度跃进 (Dynamic Quest Progression) ===
+=== 任务进度跃进 ===
 如果剧情显示玩家跨越了时间或空间（例如直接到达了目的地，或一波清除了敌人），请直接在 questUpdates 中将该任务状态设置为 "completed"，或将 step 直接增加对应的跨度，不要每次只 +1。
 
-=== 时间流逝 (Time Progression) ===
+=== 时间流逝 ===
 如果剧情中发生了时间流逝（例如：睡了一觉、长途跋涉、度过了一段时间），请在 statDeltas 中添加一个目标为 "daysPassed" 的 "add" 操作，值为经过的天数（至少为 1）。
 
-Player Action: ${action}
-Story Event: ${storyText}
-Current Location: ${gameState.location}
+玩家行动: ${action}
+故事事件: ${storyText}
+当前位置: ${gameState.location}
 
-Respond ONLY with a valid JSON object matching this schema:
+请仅返回符合以下模式的有效 JSON 对象：
 {
   "statDeltas": [
     { "target": "hp" | "maxHp" | "gold" | "level" | "exp" | "skillPoints" | "daysPassed", "operation": "add" | "subtract" | "set", "value": number }
@@ -639,12 +637,12 @@ Respond ONLY with a valid JSON object matching this schema:
   "inventoryDeltas": [
     { "operation": "add" | "remove", "item": "string" }
   ],
-  "newLocation": "string (only if location changed)",
+  "newLocation": "string (仅当位置改变时)",
   "newSkills": [ { "name": "string", "level": 1, "exp": 0, "maxLevel": 15 } ],
   "questUpdates": [ { "id": "string", "name": "string", "step": number, "status": "active" | "completed" | "failed" } ],
   "npcUpdates": [ { "name": "string", "affinity": number, "isAlive": boolean } ],
   "logs": [ { "id": "string", "timestamp": number, "type": "event" | "combat" | "item", "text": "string" } ],
-  "isGameOver": boolean (true ONLY if the story explicitly states the player died)
+  "isGameOver": boolean (仅当故事明确说明玩家死亡时为 true)
 }`;
 
   let parsedData: any = {};
@@ -657,7 +655,7 @@ Respond ONLY with a valid JSON object matching this schema:
       });
       parsedData = parseJSONResponse(data.choices[0].message.content);
     } else {
-      const ai = getAI();
+      const ai = getAI(settings.apiKey);
       const response = await ai.models.generateContent({
         model: 'gemini-3.1-flash-lite-preview',
         contents: prompt,
@@ -666,13 +664,13 @@ Respond ONLY with a valid JSON object matching this schema:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              statDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { target: { type: Type.STRING }, operation: { type: Type.STRING }, value: { type: Type.NUMBER } } } },
-              inventoryDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { operation: { type: Type.STRING }, item: { type: Type.STRING } } } },
+              statDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { target: { type: Type.STRING, enum: ['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed'] }, operation: { type: Type.STRING, enum: ['add', 'subtract', 'set'] }, value: { type: Type.NUMBER } } } },
+              inventoryDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { operation: { type: Type.STRING, enum: ['add', 'remove'] }, item: { type: Type.STRING } } } },
               newLocation: { type: Type.STRING },
               newSkills: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, level: { type: Type.NUMBER }, exp: { type: Type.NUMBER }, maxLevel: { type: Type.NUMBER } } } },
-              questUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, step: { type: Type.NUMBER }, status: { type: Type.STRING } } } },
+              questUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, step: { type: Type.NUMBER }, status: { type: Type.STRING, enum: ['active', 'completed', 'failed'] } } } },
               npcUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, affinity: { type: Type.NUMBER }, isAlive: { type: Type.BOOLEAN } } } },
-              logs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, timestamp: { type: Type.NUMBER }, type: { type: Type.STRING }, text: { type: Type.STRING } } } },
+              logs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, timestamp: { type: Type.NUMBER }, type: { type: Type.STRING, enum: ['event', 'combat', 'item'] }, text: { type: Type.STRING } } } },
               isGameOver: { type: Type.BOOLEAN }
             }
           }
@@ -704,7 +702,7 @@ export const generateItemDescription = async (itemName: string, context: string,
 
 请为这个物品写一段简短、沉浸且充满风味的描述（最多2句话）。
 重点描述它的外观、潜在用途、或神秘的氛围。
-IMPORTANT: The description MUST be written in Simplified Chinese.
+注意：描述必须使用简体中文编写。
   `;
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
@@ -720,7 +718,7 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
   }
 
   try {
-    const ai = getAI();
+    const ai = getAI(settings.apiKey);
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-preview',
       contents: prompt,
@@ -735,13 +733,13 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
 export const generateSkillDescription = async (skillName: string, context: string): Promise<string> => {
   const settings = getSettings();
   const prompt = `
-You are a lore-master in a fantasy text adventure game.
-The player has learned a skill: "${skillName}".
-Current context of the game: "${context}"
+你是一个奇幻文字冒险游戏的“技能导师”。
+玩家学习了一个技能："${skillName}"。
+当前游戏背景/任务："${context}"
 
-Write a short, immersive, and flavorful description for this skill (max 2 sentences).
-Focus on its visual effect, combat utility, or magical nature.
-IMPORTANT: The description MUST be written in Simplified Chinese.
+请为这个技能写一段简短、沉浸且充满风味的描述（最多2句话）。
+重点描述它的视觉效果、战斗效用或魔法本质。
+注意：描述必须使用简体中文编写。
   `;
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
@@ -757,7 +755,7 @@ IMPORTANT: The description MUST be written in Simplified Chinese.
   }
 
   try {
-    const ai = getAI();
+    const ai = getAI(settings.apiKey);
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-preview',
       contents: prompt,

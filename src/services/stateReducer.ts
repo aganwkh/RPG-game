@@ -16,27 +16,27 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
       const value = Number(delta.value);
       
       if (['hp', 'maxHp', 'gold', 'level', 'exp', 'maxExp', 'skillPoints'].includes(target)) {
-        if (delta.operation === 'add') {
+        if (delta.operation === 'add' || delta.operation === 'increase') {
           (newState.stats as any)[target] = ((newState.stats as any)[target] || 0) + value;
-        } else if (delta.operation === 'subtract') {
+        } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
           (newState.stats as any)[target] = Math.max(0, ((newState.stats as any)[target] || 0) - value);
         } else if (delta.operation === 'set') {
           (newState.stats as any)[target] = value;
         }
       } else if (['strength', 'agility', 'intelligence', 'charisma', 'luck'].includes(target)) {
         if (newState.stats.attributes) {
-          if (delta.operation === 'add') {
+          if (delta.operation === 'add' || delta.operation === 'increase') {
             (newState.stats.attributes as any)[target] = ((newState.stats.attributes as any)[target] || 10) + value;
-          } else if (delta.operation === 'subtract') {
+          } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
             (newState.stats.attributes as any)[target] = Math.max(1, ((newState.stats.attributes as any)[target] || 10) - value);
           } else if (delta.operation === 'set') {
             (newState.stats.attributes as any)[target] = Math.max(1, value);
           }
         }
       } else if (target === 'daysPassed') {
-        if (delta.operation === 'add') {
+        if (delta.operation === 'add' || delta.operation === 'increase') {
           newState.daysPassed = (newState.daysPassed || 1) + value;
-        } else if (delta.operation === 'subtract') {
+        } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
           newState.daysPassed = Math.max(1, (newState.daysPassed || 1) - value);
         } else if (delta.operation === 'set') {
           newState.daysPassed = Math.max(1, value);
@@ -49,11 +49,11 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   if (updates.inventoryDeltas && Array.isArray(updates.inventoryDeltas)) {
     newState.inventory = [...currentState.inventory];
     updates.inventoryDeltas.forEach((delta: any) => {
-      if (delta.operation === 'add' && delta.item) {
+      if ((delta.operation === 'add' || delta.operation === 'increase') && delta.item) {
         if (!newState.inventory.includes(delta.item)) {
           newState.inventory.push(delta.item);
         }
-      } else if (delta.operation === 'remove' && delta.item) {
+      } else if ((delta.operation === 'remove' || delta.operation === 'decrease' || delta.operation === 'subtract') && delta.item) {
         newState.inventory = newState.inventory.filter(i => i !== delta.item);
       }
     });

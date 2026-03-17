@@ -75,10 +75,10 @@ export function Game() {
       
       // Parse choices
       let choices: string[] = [];
-      const choicesMatch = fullStory.match(/CHOICES:\n([\s\S]*)/);
+      const choicesMatch = fullStory.match(/选项:\n([\s\S]*)/);
       if (choicesMatch) {
         choices = choicesMatch[1].split('\n').filter(c => c.trim()).map(c => c.replace(/^\d+\.\s*/, '').trim());
-        fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
+        fullStory = fullStory.replace(/选项:\n[\s\S]*/, '').trim();
       }
       
       setGameState(prev => ({ ...prev, storyText: fullStory, choices }));
@@ -237,10 +237,10 @@ export function Game() {
       
       // Parse choices
       let choices: string[] = [];
-      const choicesMatch = fullStory.match(/CHOICES:\n([\s\S]*)/);
+      const choicesMatch = fullStory.match(/选项:\n([\s\S]*)/);
       if (choicesMatch) {
         choices = choicesMatch[1].split('\n').filter(c => c.trim()).map(c => c.replace(/^\d+\.\s*/, '').trim());
-        fullStory = fullStory.replace(/CHOICES:\n[\s\S]*/, '').trim();
+        fullStory = fullStory.replace(/选项:\n[\s\S]*/, '').trim();
       }
       
       setGameState(prev => ({ ...prev, storyText: fullStory, choices }));
