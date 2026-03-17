@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const apiKey = process.env.GEMINI_API_KEY || 'dummy_key_to_prevent_crash';
+const ai = new GoogleGenAI({ apiKey });
 
 // We'll use Flash for fast routing and state extraction
 export const flashModel = "gemini-3-flash-preview";

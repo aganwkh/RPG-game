@@ -6,7 +6,7 @@ import { z } from 'zod';
 const getAI = () => {
   // @ts-ignore
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : '');
-  return new GoogleGenAI({ apiKey: apiKey as string });
+  return new GoogleGenAI({ apiKey: (apiKey as string) || 'dummy_key_to_prevent_crash' });
 };
 
 const parseJSONResponse = (text: string) => {
