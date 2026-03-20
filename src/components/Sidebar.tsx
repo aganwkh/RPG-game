@@ -552,7 +552,9 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onOpenDir
                     <div className="w-1.5 h-1.5 rounded-full bg-indigo-500/50 shadow-[0_0_8px_rgba(99,102,241,0.5)]" />
                     <span className="font-serif flex-1">{item}</span>
                     {director?.itemPlotHooks?.[item] && (
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400/80 animate-pulse" title="命运之物" />
+                      <span title="命运之物">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400/80 animate-pulse" />
+                      </span>
                     )}
                   </div>
                   

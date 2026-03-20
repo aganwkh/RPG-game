@@ -181,7 +181,7 @@ Write the story response (1-3 paragraphs). Do not output JSON.
 
 export async function extractStateUpdates(
   recentStory: string,
-  currentState: any,
+  currentState: { currentLocation: string, activeMysteries: string[] },
 ) {
   const prompt = `
 You are the "State Extractor" of a text RPG.

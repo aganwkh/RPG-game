@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X } from 'lucide-react';
+import { X, RefreshCw } from 'lucide-react';
 import { getSettings, saveSettings, AppSettings } from '../services/httpClient';
 
 interface SettingsModalProps {
@@ -10,12 +10,70 @@ interface SettingsModalProps {
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [settings, setSettings] = useState<AppSettings>(getSettings());
+  const [models, setModels] = useState<string[]>([]);
+  const [bgModels, setBgModels] = useState<string[]>([]);
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [isFetchingBgModels, setIsFetchingBgModels] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setSettings(getSettings());
     }
   }, [isOpen]);
+
+  const fetchModels = async (isBg: boolean) => {
+    const provider = isBg ? settings.bgProvider : settings.provider;
+    const baseUrl = isBg ? settings.bgBaseUrl : settings.baseUrl;
+    const apiKey = isBg ? settings.bgApiKey : settings.apiKey;
+    
+    const setFetching = isBg ? setIsFetchingBgModels : setIsFetchingModels;
+    const setModelList = isBg ? setBgModels : setModels;
+    
+    setFetching(true);
+    try {
+      if (provider === 'gemini') {
+        if (!apiKey) {
+          alert('请先填入 API Key');
+          return;
+        }
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.models && Array.isArray(data.models)) {
+            setModelList(data.models.map((m: { name: string }) => m.name.replace('models/', '')));
+          }
+        } else {
+          alert('获取模型失败，请检查 API Key 是否正确');
+        }
+      } else {
+        const url = baseUrl || 'https://api.openai.com/v1';
+        if (!url && !apiKey) {
+          alert('请先填入 Base URL 或 API Key');
+          return;
+        }
+        const headers: Record<string, string> = {};
+        if (apiKey) {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        const response = await fetch(`${url.replace(/\/$/, '')}/models`, {
+          headers
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && Array.isArray(data.data)) {
+            setModelList(data.data.map((m: { id: string }) => m.id));
+          }
+        } else {
+          alert('获取模型失败，请检查 Base URL 和 API Key');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch models', e);
+      alert('获取模型失败，请检查网络连接或跨域设置');
+    } finally {
+      setFetching(false);
+    }
+  };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -86,6 +144,42 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
                   />
                 </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-zinc-400">模型</label>
+                    <button
+                      onClick={() => fetchModels(false)}
+                      disabled={isFetchingModels}
+                      className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isFetchingModels ? 'animate-spin' : ''}`} />
+                      扫描模型
+                    </button>
+                  </div>
+                  {models.length > 0 ? (
+                    <select
+                      name="model"
+                      value={settings.model}
+                      onChange={handleChange}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
+                    >
+                      <option value="">选择模型...</option>
+                      {models.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      name="model"
+                      value={settings.model}
+                      onChange={handleChange}
+                      placeholder={settings.provider === 'gemini' ? "例如: gemini-2.5-flash" : "例如: gpt-3.5-turbo"}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
+                    />
+                  )}
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -127,6 +221,42 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     placeholder={settings.bgProvider === 'gemini' ? "留空使用默认密钥" : "sk-..."}
                     className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-sm font-medium text-zinc-400">模型</label>
+                    <button
+                      onClick={() => fetchModels(true)}
+                      disabled={isFetchingBgModels}
+                      className="text-xs text-zinc-400 hover:text-zinc-200 flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isFetchingBgModels ? 'animate-spin' : ''}`} />
+                      扫描模型
+                    </button>
+                  </div>
+                  {bgModels.length > 0 ? (
+                    <select
+                      name="bgModel"
+                      value={settings.bgModel}
+                      onChange={handleChange}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
+                    >
+                      <option value="">选择模型...</option>
+                      {bgModels.map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      name="bgModel"
+                      value={settings.bgModel}
+                      onChange={handleChange}
+                      placeholder={settings.bgProvider === 'gemini' ? "例如: gemini-2.5-flash" : "例如: gpt-3.5-turbo"}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2 text-zinc-200 focus:outline-none focus:border-zinc-600"
+                    />
+                  )}
                 </div>
               </div>
 

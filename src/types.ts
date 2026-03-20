@@ -116,7 +116,7 @@ export interface StateUpdateResult {
   statDeltas?: StatDelta[];
   inventoryDeltas?: InventoryDelta[];
   newLocation?: string;
-  newSkills?: Skill[];
+  newSkills?: (Partial<Skill> & { name: string })[];
   questUpdates?: Quest[];
   npcUpdates?: NpcState[];
   logs?: LogEntry[];

@@ -4,9 +4,11 @@ export interface AppSettings {
   provider: string;
   baseUrl: string;
   apiKey: string;
+  model: string;
   bgProvider: string;
   bgBaseUrl: string;
   bgApiKey: string;
+  bgModel: string;
 }
 
 export const getSettings = (): AppSettings => {
@@ -22,9 +24,11 @@ export const getSettings = (): AppSettings => {
     provider: 'gemini',
     baseUrl: '',
     apiKey: '',
+    model: '',
     bgProvider: 'gemini',
     bgBaseUrl: '',
-    bgApiKey: ''
+    bgApiKey: '',
+    bgModel: ''
   };
 };
 
@@ -45,7 +49,7 @@ export const fetchWithRetry = async (url: string, options: RequestInit, retries 
   throw new Error('Fetch failed after retries');
 };
 
-export const customApiFetch = async (endpoint: string, body: any, options?: any) => {
+export const customApiFetch = async (endpoint: string, body: Record<string, unknown>, options?: RequestInit & { isBackground?: boolean }) => {
   const settings = getSettings();
   const isBackground = options?.isBackground;
   const baseUrl = isBackground ? settings.bgBaseUrl : settings.baseUrl;
@@ -63,7 +67,7 @@ export const customApiFetch = async (endpoint: string, body: any, options?: any)
   return response.json();
 };
 
-export const customApiFetchStream = async (endpoint: string, body: any, options?: any) => {
+export const customApiFetchStream = async (endpoint: string, body: Record<string, unknown>, options?: RequestInit & { isBackground?: boolean }) => {
   const settings = getSettings();
   const isBackground = options?.isBackground;
   const baseUrl = isBackground ? settings.bgBaseUrl : settings.baseUrl;

@@ -3,6 +3,8 @@ import { motion } from 'motion/react';
 import { useGameStore } from '../store/gameStore';
 import { Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import { parseStoryText } from '../utils/textParser';
 
 interface StoryViewProps {
   onChoice: (choice: string) => void;
@@ -22,14 +24,16 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
         className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 text-zinc-300 text-lg md:text-xl font-serif"
       >
         <div className="markdown-body">
-          <ReactMarkdown>{storyText || ''}</ReactMarkdown>
+          <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+            {parseStoryText(storyText || '')}
+          </ReactMarkdown>
         </div>
       </motion.div>
 
       {isLoading && (
         <div className="flex items-center gap-3 text-zinc-500 italic mt-4">
           <Loader2 className="w-4 h-4 animate-spin" />
-          <span>The world is reacting...</span>
+          <span>世界正在发生变化...</span>
         </div>
       )}
 
@@ -46,7 +50,11 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
               onClick={() => onChoice(choice)}
               className="text-left p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"
             >
-              {choice}
+              <div className="prose prose-invert max-w-none prose-p:m-0">
+                <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                  {parseStoryText(choice)}
+                </ReactMarkdown>
+              </div>
             </button>
           ))}
         </motion.div>
@@ -62,7 +70,7 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
             onClick={onRestart}
             className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium transition-colors"
           >
-            Start a New Journey
+            开始新的旅程
           </button>
         </motion.div>
       )}

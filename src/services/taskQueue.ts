@@ -1,5 +1,5 @@
 export class TaskQueue {
-  private queue: (() => Promise<any>)[] = [];
+  private queue: (() => Promise<unknown>)[] = [];
   private isProcessing = false;
 
   async enqueue<T>(task: () => Promise<T>): Promise<T> {

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState } from '../types';
+import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState, DirectorState, StateUpdateResult } from '../types';
 import { customApiFetch, customApiFetchStream, fetchWithRetry, getSettings } from './httpClient';
 import { z } from 'zod';
 
@@ -85,9 +85,11 @@ ${recentLogs.join('\n')}
   const provider = settings.bgProvider || settings.provider || 'default';
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
   const apiKey = settings.bgApiKey || settings.apiKey;
+  const model = settings.bgModel || settings.model || 'gpt-3.5-turbo';
 
   if (provider === 'custom' && baseUrl && apiKey) {
     const data = await customApiFetch('/chat/completions', {
+      model: model,
       messages: [
         { role: 'system', content: systemInstruction },
         { role: 'user', content: prompt }
@@ -98,7 +100,7 @@ ${recentLogs.join('\n')}
 
   const ai = getAI(apiKey);
   const response = await ai.models.generateContent({
-    model: 'gemini-3.1-flash-lite-preview',
+    model: settings.bgModel || settings.model || 'gemini-3.1-flash-lite-preview',
     contents: prompt,
     config: {
       systemInstruction: systemInstruction,
@@ -118,16 +120,16 @@ const MemoryUpdateSchema = z.object({
 
 const DirectorUpdateSchema = z.object({
   currentArc: z.string(),
-  globalPacing: z.string(),
+  globalPacing: z.enum(['slow', 'normal', 'fast']),
   upcomingEvents: z.array(z.string()),
   tension: z.number().min(0).max(100),
-  itemPlotHooks: z.record(z.string()).optional()
+  itemPlotHooks: z.record(z.string(), z.string()).optional()
 });
 
 export const updateDirectorState = async (
   gameState: GameState,
   recentHistory: { action: string, story: string }[]
-): Promise<any> => {
+): Promise<DirectorState> => {
   const settings = getSettings();
   
   const systemInstruction = `你是一个文字冒险游戏的“大导演 (Narrative Director)”。
@@ -204,7 +206,7 @@ ${historyText}
 
 请返回更新后的导演状态 JSON。`;
 
-  let parsedDirector: any = gameState.director || { currentArc: '序章', globalPacing: 'normal', upcomingEvents: [], tension: 10, itemPlotHooks: {} };
+  let parsedDirector: DirectorState = gameState.director || { currentArc: '序章', globalPacing: 'normal', upcomingEvents: [], tension: 10, itemPlotHooks: {} };
 
   try {
     if (provider === 'custom' && baseUrl && apiKey) {
@@ -218,6 +220,7 @@ ${historyText}
 }`;
 
       const data = await customApiFetch('/chat/completions', {
+        model: settings.bgModel || settings.model || 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: customSystemInstruction },
           { role: 'user', content: prompt }
@@ -230,7 +233,7 @@ ${historyText}
     } else {
       const ai = getAI(apiKey);
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: settings.bgModel || settings.model || 'gemini-3.1-flash-lite-preview',
         contents: prompt,
         config: {
           systemInstruction: systemInstruction,
@@ -242,7 +245,18 @@ ${historyText}
               globalPacing: { type: Type.STRING, description: 'Pacing: slow, normal, or fast.' },
               upcomingEvents: { type: Type.ARRAY, items: { type: Type.STRING }, description: '1-3 upcoming events.' },
               tension: { type: Type.NUMBER, description: 'Tension level from 0 to 100.' },
-              itemPlotHooks: { type: Type.OBJECT, description: 'Map of item names to their hidden plot hooks/destinies.' }
+              itemPlotHooks: {
+                type: Type.ARRAY,
+                description: 'List of item names and their hidden plot hooks/destinies.',
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    itemName: { type: Type.STRING },
+                    hook: { type: Type.STRING }
+                  },
+                  required: ['itemName', 'hook']
+                }
+              }
             },
             required: ['currentArc', 'globalPacing', 'upcomingEvents', 'tension', 'itemPlotHooks']
           }
@@ -250,6 +264,17 @@ ${historyText}
       });
 
       parsedDirector = parseJSONResponse(response.text || '{}');
+      
+      // Convert array of objects to map
+      if (Array.isArray(parsedDirector.itemPlotHooks)) {
+        const hooksMap: Record<string, string> = {};
+        for (const hook of parsedDirector.itemPlotHooks) {
+          if (hook.itemName && hook.hook) {
+            hooksMap[hook.itemName] = hook.hook;
+          }
+        }
+        parsedDirector.itemPlotHooks = hooksMap;
+      }
     }
     
     // Ensure itemPlotHooks exists
@@ -314,7 +339,7 @@ export const updateGameMemory = async (
   const historyText = recentHistory.map(h => `玩家行动: ${h.action}\n故事: ${h.story}`).join('\n\n');
 
   // Retrieve relevant lorebook entries using RAG
-  let relevantWorldbook: any[] = [];
+  let relevantWorldbook: MemoryState['worldInfo'] = [];
   if (currentMemory.worldInfo && currentMemory.worldInfo.length > 0) {
     try {
       const historyEmbedding = await getEmbedding(historyText.slice(-1000));
@@ -358,7 +383,7 @@ ${historyText}
   const baseUrl = settings.bgBaseUrl || settings.baseUrl;
   const apiKey = settings.bgApiKey || settings.apiKey;
 
-  let parsedMemory: any = { summary: currentMemory.summary, worldInfo: [] };
+  let parsedMemory: Partial<MemoryState> & Record<string, unknown> = { summary: currentMemory.summary, worldInfo: [] };
 
   try {
     if (provider === 'custom' && baseUrl && apiKey) {
@@ -371,6 +396,7 @@ ${historyText}
 }`;
 
       const data = await customApiFetch('/chat/completions', {
+        model: settings.bgModel || settings.model || 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: customSystemInstruction },
           { role: 'user', content: prompt }
@@ -383,7 +409,7 @@ ${historyText}
     } else {
       const ai = getAI(apiKey);
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: settings.bgModel || settings.model || 'gemini-3.1-flash-lite-preview',
         contents: prompt,
         config: {
           systemInstruction: systemInstruction,
@@ -451,7 +477,7 @@ ${historyText}
   // Generate embeddings for new or changed worldInfo entries
   if (parsedMemory.worldInfo && Array.isArray(parsedMemory.worldInfo)) {
     parsedMemory.worldInfo = await Promise.all(
-      parsedMemory.worldInfo.map(async (entry: any) => {
+      parsedMemory.worldInfo.map(async (entry: { keywords: string[], content: string, embedding?: number[] }) => {
         if (entry.embedding) return entry; // Already has embedding
         
         try {
@@ -465,7 +491,7 @@ ${historyText}
     );
   }
   
-  return parsedMemory;
+  return parsedMemory as MemoryState;
 };
 
 export const generateStoryStream = async function* (
@@ -501,7 +527,7 @@ export const generateStoryStream = async function* (
 
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
     const abortController = new AbortController();
-    let watchdogTimer: any;
+    let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
 
     const resetWatchdog = () => {
       if (watchdogTimer) clearTimeout(watchdogTimer);
@@ -513,6 +539,7 @@ export const generateStoryStream = async function* (
     try {
       resetWatchdog();
       const response = await customApiFetchStream('/chat/completions', {
+        model: settings.model || 'gpt-3.5-turbo',
         messages: [
           { role: 'system', content: systemInstruction },
           { role: 'user', content: context + `\n\n玩家行动: ${action}` }
@@ -558,7 +585,7 @@ export const generateStoryStream = async function* (
 
   const ai = getAI(settings.apiKey);
   const responseStream = await ai.models.generateContentStream({
-    model: 'gemini-3.1-pro-preview',
+    model: settings.model || 'gemini-3.1-pro-preview',
     contents: context + `\n\n玩家行动: ${action}`,
     config: { systemInstruction }
   });
@@ -570,12 +597,12 @@ export const generateStoryStream = async function* (
 
 const StateDeltaSchema = z.object({
   statDeltas: z.array(z.object({
-    target: z.string(),
-    operation: z.string(),
+    target: z.enum(['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed']),
+    operation: z.enum(['add', 'subtract', 'set']),
     value: z.number()
   })).optional(),
   inventoryDeltas: z.array(z.object({
-    operation: z.string(),
+    operation: z.enum(['add', 'remove']),
     item: z.string()
   })).optional(),
   newLocation: z.string().optional(),
@@ -588,18 +615,18 @@ const StateDeltaSchema = z.object({
   questUpdates: z.array(z.object({
     id: z.string(),
     name: z.string(),
-    step: z.number().optional(),
-    status: z.string().optional()
+    step: z.number(),
+    status: z.enum(['active', 'completed', 'failed'])
   })).optional(),
   npcUpdates: z.array(z.object({
     name: z.string(),
-    affinity: z.number().optional(),
-    isAlive: z.boolean().optional()
+    affinity: z.number(),
+    isAlive: z.boolean()
   })).optional(),
   logs: z.array(z.object({
     id: z.string(),
     timestamp: z.number(),
-    type: z.string(),
+    type: z.enum(['choice', 'event', 'system', 'location', 'level_up', 'item', 'combat', 'skill']),
     text: z.string()
   })).optional(),
   isGameOver: z.boolean().optional()
@@ -609,7 +636,7 @@ export const extractStateUpdates = async (
   gameState: GameState,
   action: string,
   storyText: string
-): Promise<any> => {
+): Promise<StateUpdateResult> => {
   const settings = getSettings();
   const prompt = `请根据最新的故事事件，使用增量（add/subtract/set）提取任何状态变化。
 
@@ -645,11 +672,12 @@ export const extractStateUpdates = async (
   "isGameOver": boolean (仅当故事明确说明玩家死亡时为 true)
 }`;
 
-  let parsedData: any = {};
+  let parsedData: Partial<StateUpdateResult> & Record<string, unknown> = {};
 
   try {
     if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
       const data = await customApiFetch('/chat/completions', {
+        model: settings.model || 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }
       });
@@ -657,7 +685,7 @@ export const extractStateUpdates = async (
     } else {
       const ai = getAI(settings.apiKey);
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
+        model: settings.model || 'gemini-3.1-flash-lite-preview',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -708,6 +736,7 @@ export const generateItemDescription = async (itemName: string, context: string,
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
     try {
       const data = await customApiFetch('/chat/completions', {
+        model: settings.model || 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }]
       });
       return data.choices[0].message.content.trim();
@@ -720,7 +749,7 @@ export const generateItemDescription = async (itemName: string, context: string,
   try {
     const ai = getAI(settings.apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: settings.model || 'gemini-3.1-flash-lite-preview',
       contents: prompt,
     });
     return response.text?.trim() || "一个神秘的物品，散发着微弱的光芒。";
@@ -745,6 +774,7 @@ export const generateSkillDescription = async (skillName: string, context: strin
   if (settings.provider === 'custom' && settings.baseUrl && settings.apiKey) {
     try {
       const data = await customApiFetch('/chat/completions', {
+        model: settings.model || 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }]
       });
       return data.choices[0].message.content.trim();
@@ -757,7 +787,7 @@ export const generateSkillDescription = async (skillName: string, context: strin
   try {
     const ai = getAI(settings.apiKey);
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite-preview',
+      model: settings.model || 'gemini-3.1-flash-lite-preview',
       contents: prompt,
     });
     return response.text?.trim() || "一种强大的能力，蕴含着未知的力量。";

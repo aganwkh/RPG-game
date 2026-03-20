@@ -2,6 +2,9 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { LogEntry } from '../types';
+import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import { parseStoryText } from '../utils/textParser';
 
 interface LogsModalProps {
   isOpen: boolean;
@@ -21,7 +24,7 @@ export function LogsModal({ isOpen, onClose, logs }: LogsModalProps) {
             className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl relative"
           >
             <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
-              <h2 className="text-xl font-semibold text-zinc-100">Adventure Logs</h2>
+              <h2 className="text-xl font-semibold text-zinc-100">冒险日志</h2>
               <button
                 onClick={onClose}
                 className="text-zinc-500 hover:text-zinc-300"
@@ -31,14 +34,18 @@ export function LogsModal({ isOpen, onClose, logs }: LogsModalProps) {
             </div>
             <div className="p-6 overflow-y-auto flex-1 space-y-4">
               {logs.length === 0 ? (
-                <p className="text-zinc-500 text-center italic">No logs yet.</p>
+                <p className="text-zinc-500 text-center italic">暂无日志。</p>
               ) : (
                 logs.map((log) => (
                   <div key={log.id} className="border-l-2 border-indigo-500/30 pl-4 py-1">
                     <span className="text-xs text-zinc-500 block mb-1">
                       {new Date(log.timestamp).toLocaleTimeString()}
                     </span>
-                    <p className="text-sm text-zinc-300">{log.message}</p>
+                    <div className="text-sm text-zinc-300 prose prose-invert max-w-none prose-p:m-0">
+                      <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                        {parseStoryText(log.text || '')}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 ))
               )}

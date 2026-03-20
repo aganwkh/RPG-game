@@ -9,7 +9,7 @@ interface GameStore extends GameState {
   addRecentHistory: (history: { action: string, story: string }) => void;
   useSkill: (skillName: string) => void;
   decrementCooldowns: () => void;
-  loadGame: (savedState: any) => void;
+  loadGame: (savedState: Partial<GameState>) => void;
 }
 
 const defaultInitialState: GameState = {

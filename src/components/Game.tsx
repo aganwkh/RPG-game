@@ -87,8 +87,8 @@ export function Game() {
       setGameState(prev => applyStateUpdates(prev, updates));
       
       showToast('新冒险已开始');
-    } catch (err: any) {
-      setError(err.message || '启动游戏失败');
+    } catch (err: unknown) {
+      setError((err as Error).message || '启动游戏失败');
       setIsGameStarted(false);
     } finally {
       setIsLoading(false);
@@ -99,13 +99,13 @@ export function Game() {
     if (isGameStarted) {
       try {
         // Strip functions before saving to IndexedDB (structured clone doesn't support functions)
-        const stateToSave = { ...gameState };
-        delete (stateToSave as any).setGameState;
-        delete (stateToSave as any).addLog;
-        delete (stateToSave as any).addRecentHistory;
-        delete (stateToSave as any).useSkill;
-        delete (stateToSave as any).decrementCooldowns;
-        delete (stateToSave as any).loadGame;
+        const stateToSave: Partial<GameState> & Record<string, unknown> = { ...gameState };
+        delete stateToSave.setGameState;
+        delete stateToSave.addLog;
+        delete stateToSave.addRecentHistory;
+        delete stateToSave.useSkill;
+        delete stateToSave.decrementCooldowns;
+        delete stateToSave.loadGame;
         
         await idbSet('saved_game_state', stateToSave);
         showToast('游戏已手动保存');
@@ -137,13 +137,13 @@ export function Game() {
   const exportSave = () => {
     if (isGameStarted) {
       try {
-        const stateToExport = { ...gameState };
-        delete (stateToExport as any).setGameState;
-        delete (stateToExport as any).addLog;
-        delete (stateToExport as any).addRecentHistory;
-        delete (stateToExport as any).useSkill;
-        delete (stateToExport as any).decrementCooldowns;
-        delete (stateToExport as any).loadGame;
+        const stateToExport: Partial<GameState> & Record<string, unknown> = { ...gameState };
+        delete stateToExport.setGameState;
+        delete stateToExport.addLog;
+        delete stateToExport.addRecentHistory;
+        delete stateToExport.useSkill;
+        delete stateToExport.decrementCooldowns;
+        delete stateToExport.loadGame;
 
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stateToExport));
         const downloadAnchorNode = document.createElement('a');
@@ -165,8 +165,9 @@ export function Game() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = (e: any) => {
-      const file = e.target.files[0];
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const file = target.files?.[0];
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -295,8 +296,8 @@ export function Game() {
         }
       }
 
-    } catch (err: any) {
-      setError(err.message || '生成下一回合失败');
+    } catch (err: unknown) {
+      setError((err as Error).message || '生成下一回合失败');
       // Restore previous state so user can retry
       setGameState(prev => ({
         ...prev,
@@ -528,14 +529,7 @@ export function Game() {
       <WorldbookModal
         isOpen={isWorldbookOpen}
         onClose={() => setIsWorldbookOpen(false)}
-        memory={gameState?.memory || { summary: '', worldInfo: [] }}
-        logs={gameState?.logs || []}
-        onUpdateMemory={(newMemory) => {
-          if (isGameStarted) {
-            setGameState(prev => ({ ...prev, memory: newMemory }));
-            showToast('世界书已更新');
-          }
-        }}
+        worldInfo={gameState?.memory?.worldInfo || []}
       />
 
       <AnimatePresence>

@@ -1,6 +1,6 @@
-import { GameState, CharacterStats, Skill, Quest, NpcState, LogEntry } from '../types';
+import { GameState, CharacterStats, Skill, Quest, NpcState, LogEntry, StateUpdateResult } from '../types';
 
-export const applyStateUpdates = (currentState: GameState, updates: any): GameState => {
+export const applyStateUpdates = (currentState: GameState, updates: StateUpdateResult): GameState => {
   const newState = { ...currentState };
   
   // Clone stats to avoid mutating the original
@@ -11,34 +11,38 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
 
   // Apply stat deltas
   if (updates.statDeltas && Array.isArray(updates.statDeltas)) {
-    updates.statDeltas.forEach((delta: any) => {
+    updates.statDeltas.forEach((delta) => {
       const target = delta.target as keyof CharacterStats | 'daysPassed';
       const value = Number(delta.value);
       
+      const op = delta.operation as string;
+      
       if (['hp', 'maxHp', 'gold', 'level', 'exp', 'maxExp', 'skillPoints'].includes(target)) {
-        if (delta.operation === 'add' || delta.operation === 'increase') {
-          (newState.stats as any)[target] = ((newState.stats as any)[target] || 0) + value;
-        } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
-          (newState.stats as any)[target] = Math.max(0, ((newState.stats as any)[target] || 0) - value);
-        } else if (delta.operation === 'set') {
-          (newState.stats as any)[target] = value;
+        const statsRecord = newState.stats as unknown as Record<string, number>;
+        if (op === 'add' || op === 'increase') {
+          statsRecord[target] = (statsRecord[target] || 0) + value;
+        } else if (op === 'subtract' || op === 'decrease') {
+          statsRecord[target] = Math.max(0, (statsRecord[target] || 0) - value);
+        } else if (op === 'set') {
+          statsRecord[target] = value;
         }
       } else if (['strength', 'agility', 'intelligence', 'charisma', 'luck'].includes(target)) {
         if (newState.stats.attributes) {
-          if (delta.operation === 'add' || delta.operation === 'increase') {
-            (newState.stats.attributes as any)[target] = ((newState.stats.attributes as any)[target] || 10) + value;
-          } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
-            (newState.stats.attributes as any)[target] = Math.max(1, ((newState.stats.attributes as any)[target] || 10) - value);
-          } else if (delta.operation === 'set') {
-            (newState.stats.attributes as any)[target] = Math.max(1, value);
+          const attrRecord = newState.stats.attributes as unknown as Record<string, number>;
+          if (op === 'add' || op === 'increase') {
+            attrRecord[target] = (attrRecord[target] || 10) + value;
+          } else if (op === 'subtract' || op === 'decrease') {
+            attrRecord[target] = Math.max(1, (attrRecord[target] || 10) - value);
+          } else if (op === 'set') {
+            attrRecord[target] = Math.max(1, value);
           }
         }
       } else if (target === 'daysPassed') {
-        if (delta.operation === 'add' || delta.operation === 'increase') {
+        if (op === 'add' || op === 'increase') {
           newState.daysPassed = (newState.daysPassed || 1) + value;
-        } else if (delta.operation === 'subtract' || delta.operation === 'decrease') {
+        } else if (op === 'subtract' || op === 'decrease') {
           newState.daysPassed = Math.max(1, (newState.daysPassed || 1) - value);
-        } else if (delta.operation === 'set') {
+        } else if (op === 'set') {
           newState.daysPassed = Math.max(1, value);
         }
       }
@@ -48,12 +52,13 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   // Apply inventory deltas
   if (updates.inventoryDeltas && Array.isArray(updates.inventoryDeltas)) {
     newState.inventory = [...currentState.inventory];
-    updates.inventoryDeltas.forEach((delta: any) => {
-      if ((delta.operation === 'add' || delta.operation === 'increase') && delta.item) {
+    updates.inventoryDeltas.forEach((delta) => {
+      const op = delta.operation as string;
+      if ((op === 'add' || op === 'increase') && delta.item) {
         if (!newState.inventory.includes(delta.item)) {
           newState.inventory.push(delta.item);
         }
-      } else if ((delta.operation === 'remove' || delta.operation === 'decrease' || delta.operation === 'subtract') && delta.item) {
+      } else if ((op === 'remove' || op === 'decrease' || op === 'subtract') && delta.item) {
         newState.inventory = newState.inventory.filter(i => i !== delta.item);
       }
     });
@@ -67,7 +72,7 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   // Apply new skills
   if (updates.newSkills && Array.isArray(updates.newSkills)) {
     newState.skills = [...currentState.skills];
-    updates.newSkills.forEach((skill: any) => {
+    updates.newSkills.forEach((skill) => {
       const existingSkillIndex = newState.skills.findIndex(s => s.name === skill.name);
       if (existingSkillIndex !== -1) {
         newState.skills[existingSkillIndex] = {
@@ -90,7 +95,7 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   // Apply quest updates
   if (updates.questUpdates && Array.isArray(updates.questUpdates)) {
     newState.quests = [...currentState.quests];
-    updates.questUpdates.forEach((quest: any) => {
+    updates.questUpdates.forEach((quest) => {
       const existingQuestIndex = newState.quests.findIndex(q => q.id === quest.id);
       if (existingQuestIndex !== -1) {
         newState.quests[existingQuestIndex] = {
@@ -112,7 +117,7 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   // Apply NPC updates
   if (updates.npcUpdates && Array.isArray(updates.npcUpdates)) {
     newState.npcStates = [...currentState.npcStates];
-    updates.npcUpdates.forEach((npc: any) => {
+    updates.npcUpdates.forEach((npc) => {
       const existingNpcIndex = newState.npcStates.findIndex(n => n.name === npc.name);
       if (existingNpcIndex !== -1) {
         newState.npcStates[existingNpcIndex] = {
@@ -133,7 +138,7 @@ export const applyStateUpdates = (currentState: GameState, updates: any): GameSt
   // Apply logs
   if (updates.logs && Array.isArray(updates.logs)) {
     newState.logs = [...(currentState.logs || [])];
-    updates.logs.forEach((log: any) => {
+    updates.logs.forEach((log) => {
       newState.logs!.push({
         id: log.id || Date.now().toString() + Math.random().toString(),
         timestamp: log.timestamp || Date.now(),
