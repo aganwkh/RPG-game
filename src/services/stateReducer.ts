@@ -100,16 +100,16 @@ export const applyStateUpdates = (currentState: GameState, updates: StateUpdateR
       if (existingSkillIndex !== -1) {
         newState.skills[existingSkillIndex] = {
           ...newState.skills[existingSkillIndex],
-          level: skill.level || newState.skills[existingSkillIndex].level,
-          exp: skill.exp || newState.skills[existingSkillIndex].exp,
-          maxLevel: skill.maxLevel || newState.skills[existingSkillIndex].maxLevel
+          level: skill.level ?? newState.skills[existingSkillIndex].level,
+          exp: skill.exp ?? newState.skills[existingSkillIndex].exp,
+          maxLevel: skill.maxLevel ?? newState.skills[existingSkillIndex].maxLevel
         };
       } else {
         newState.skills.push({
           name: skill.name,
-          level: skill.level || 1,
-          exp: skill.exp || 0,
-          maxLevel: skill.maxLevel || 15
+          level: skill.level ?? 1,
+          exp: skill.exp ?? 0,
+          maxLevel: skill.maxLevel ?? 15
         });
       }
     });
@@ -151,7 +151,7 @@ export const applyStateUpdates = (currentState: GameState, updates: StateUpdateR
       } else {
         newState.npcStates.push({
           name: npc.name,
-          affinity: npc.affinity || 0,
+          affinity: npc.affinity ?? 0,
           isAlive: npc.isAlive !== undefined ? npc.isAlive : true
         });
       }

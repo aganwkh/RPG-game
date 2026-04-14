@@ -18,7 +18,6 @@ export function Game() {
   const gameState = useGameStore();
   const setGameState = useGameStore(state => state.setGameState);
   const skillCooldowns = useGameStore(state => state.skillCooldowns);
-  const setSkillCooldowns = useGameStore(state => state.useSkill); // Wait, useSkill takes skillName. I'll just use setGameState to update it if needed, or use the store's action.
   
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -32,6 +31,26 @@ export function Game() {
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const buildNextSkillCooldowns = (currentCooldowns: Record<string, number>, usedSkills: string[]) => {
+    const nextCooldowns = { ...currentCooldowns };
+
+    for (const skillName of Object.keys(nextCooldowns)) {
+      if (nextCooldowns[skillName] > 0) {
+        nextCooldowns[skillName] -= 1;
+      }
+
+      if (nextCooldowns[skillName] <= 0) {
+        delete nextCooldowns[skillName];
+      }
+    }
+
+    for (const skillName of usedSkills) {
+      nextCooldowns[skillName] = 3;
+    }
+
+    return nextCooldowns;
   };
 
   const startGame = async () => {
@@ -210,24 +229,15 @@ export function Game() {
     
     // Save previous state to restore on error
     const previousState = { ...gameState };
-    
-    // Decrement cooldowns for all skills first
-    useGameStore.getState().decrementCooldowns();
+    const previousCooldowns = { ...useGameStore.getState().skillCooldowns };
+    const usedSkills = (gameState.skills || [])
+      .filter(skill => choice.includes(skill.name))
+      .map(skill => skill.name);
 
     // Evaluate action with arbitrator
     const tension = gameState.director?.tension || 10;
     const { rollMessage, actionType } = evaluateAction(choice, gameState.stats, tension);
     const actionWithRoll = `${choice}\n${rollMessage}`;
-
-    // Check if the choice uses any skills and put them on cooldown
-    if (gameState.skills) {
-      const usedSkills = gameState.skills.filter(skill => choice.includes(skill.name));
-      if (usedSkills.length > 0) {
-        usedSkills.forEach(skill => {
-          useGameStore.getState().useSkill(skill.name);
-        });
-      }
-    }
 
     try {
       // Clear previous choices and start streaming
@@ -262,6 +272,9 @@ export function Game() {
       
       const updates = await backgroundTaskQueue.enqueue(() => extractStateUpdates(gameState, actionWithRoll, fullStory));
       setGameState(prev => applyStateUpdates(prev, updates));
+      useGameStore.setState({
+        skillCooldowns: buildNextSkillCooldowns(previousCooldowns, usedSkills)
+      });
       
       // Asynchronously update memory every 5 turns
       const currentState = useGameStore.getState();
@@ -308,6 +321,7 @@ export function Game() {
         choices: previousState.choices,
         storyText: previousState.storyText
       }));
+      useGameStore.setState({ skillCooldowns: previousCooldowns });
     } finally {
       setIsLoading(false);
     }

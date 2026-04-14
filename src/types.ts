@@ -7,6 +7,12 @@ export interface Attributes {
 }
 
 export const GAME_VERSION = '1.0.0';
+export const DIRECTOR_PACINGS = ['slow', 'normal', 'fast'] as const;
+export const LOG_TYPES = ['choice', 'event', 'system', 'location', 'level_up', 'item', 'combat', 'skill'] as const;
+export const QUEST_STATUSES = ['active', 'completed', 'failed'] as const;
+export const STAT_OPERATIONS = ['add', 'subtract', 'set'] as const;
+export const INVENTORY_OPERATIONS = ['add', 'remove'] as const;
+export const STAT_DELTA_TARGETS = ['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed', 'strength', 'agility', 'intelligence', 'charisma', 'luck'] as const;
 
 export interface CharacterStats {
   hp: number;
@@ -34,7 +40,7 @@ export interface ApiSettings {
 export interface LogEntry {
   id: string;
   timestamp: number;
-  type: 'choice' | 'event' | 'system' | 'location' | 'level_up' | 'item' | 'combat' | 'skill';
+  type: LogType;
   text: string;
 }
 
@@ -60,7 +66,7 @@ export interface Quest {
   id: string;
   name: string;
   step: number;
-  status: 'active' | 'completed' | 'failed';
+  status: QuestStatus;
 }
 
 export interface NpcState {
@@ -71,7 +77,7 @@ export interface NpcState {
 
 export interface DirectorState {
   currentArc: string;
-  globalPacing: 'slow' | 'normal' | 'fast';
+  globalPacing: DirectorPacing;
   upcomingEvents: string[];
   tension: number;
   itemPlotHooks?: Record<string, string>;
@@ -101,16 +107,21 @@ export interface ChatMessage {
   text: string;
 }
 
-export type StatOperation = 'add' | 'subtract' | 'set';
+export type DirectorPacing = typeof DIRECTOR_PACINGS[number];
+export type LogType = typeof LOG_TYPES[number];
+export type QuestStatus = typeof QUEST_STATUSES[number];
+export type StatOperation = typeof STAT_OPERATIONS[number];
+export type InventoryOperation = typeof INVENTORY_OPERATIONS[number];
+export type StatDeltaTarget = typeof STAT_DELTA_TARGETS[number];
 
 export interface StatDelta {
-  target: 'hp' | 'maxHp' | 'gold' | 'level' | 'exp' | 'skillPoints' | 'daysPassed' | 'strength' | 'agility' | 'intelligence' | 'charisma' | 'luck';
+  target: StatDeltaTarget;
   operation: StatOperation;
   value: number;
 }
 
 export interface InventoryDelta {
-  operation: 'add' | 'remove';
+  operation: InventoryOperation;
   item: string;
 }
 

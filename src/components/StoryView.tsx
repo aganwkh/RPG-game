@@ -2,8 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { useGameStore } from '../store/gameStore';
 import { Loader2 } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import { parseStoryText } from '../utils/textParser';
+import { FormattedText } from './FormattedText';
 
 interface StoryViewProps {
   onChoice: (choice: string) => void;
@@ -23,9 +22,7 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
         className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 text-zinc-300 text-lg md:text-xl font-serif"
       >
         <div className="markdown-body">
-          <ReactMarkdown>
-            {parseStoryText(storyText || '')}
-          </ReactMarkdown>
+          <FormattedText text={storyText || ''} />
         </div>
       </motion.div>
 
@@ -49,11 +46,7 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
               onClick={() => onChoice(choice)}
               className="text-left p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"
             >
-              <div className="prose prose-invert max-w-none prose-p:m-0">
-                <ReactMarkdown>
-                  {parseStoryText(choice)}
-                </ReactMarkdown>
-              </div>
+              <FormattedText text={choice} className="text-base" />
             </button>
           ))}
         </motion.div>

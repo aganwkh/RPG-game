@@ -2,8 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { LogEntry } from '../types';
-import ReactMarkdown from 'react-markdown';
-import { parseStoryText } from '../utils/textParser';
+import { FormattedText } from './FormattedText';
 
 interface LogsModalProps {
   isOpen: boolean;
@@ -40,11 +39,7 @@ export function LogsModal({ isOpen, onClose, logs }: LogsModalProps) {
                     <span className="text-xs text-zinc-500 block mb-1">
                       {new Date(log.timestamp).toLocaleTimeString()}
                     </span>
-                    <div className="text-sm text-zinc-300 prose prose-invert max-w-none prose-p:m-0">
-                      <ReactMarkdown>
-                        {parseStoryText(log.text || '')}
-                      </ReactMarkdown>
-                    </div>
+                    <FormattedText text={log.text || ''} className="text-sm text-zinc-300" />
                   </div>
                 ))
               )}

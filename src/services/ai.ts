@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState, DirectorState, StateUpdateResult } from '../types';
+import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState, DirectorState, StateUpdateResult, DIRECTOR_PACINGS, INVENTORY_OPERATIONS, LOG_TYPES, QUEST_STATUSES, STAT_DELTA_TARGETS, STAT_OPERATIONS } from '../types';
 import { z } from 'zod';
 
 const getAI = () => {
@@ -79,7 +79,7 @@ const MemoryUpdateSchema = z.object({
 
 const DirectorUpdateSchema = z.object({
   currentArc: z.string(),
-  globalPacing: z.enum(['slow', 'normal', 'fast']),
+  globalPacing: z.enum(DIRECTOR_PACINGS),
   upcomingEvents: z.array(z.string()),
   tension: z.number().min(0).max(100),
   itemPlotHooks: z.record(z.string(), z.string()).optional()
@@ -442,12 +442,12 @@ export const generateStoryStream = async function* (
 
 const StateDeltaSchema = z.object({
   statDeltas: z.array(z.object({
-    target: z.enum(['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed', 'strength', 'agility', 'intelligence', 'charisma', 'luck']),
-    operation: z.enum(['add', 'subtract', 'set']),
+    target: z.enum(STAT_DELTA_TARGETS),
+    operation: z.enum(STAT_OPERATIONS),
     value: z.number()
   })).optional(),
   inventoryDeltas: z.array(z.object({
-    operation: z.enum(['add', 'remove']),
+    operation: z.enum(INVENTORY_OPERATIONS),
     item: z.string()
   })).optional(),
   newLocation: z.string().optional(),
@@ -461,7 +461,7 @@ const StateDeltaSchema = z.object({
     id: z.string(),
     name: z.string(),
     step: z.number(),
-    status: z.enum(['active', 'completed', 'failed'])
+    status: z.enum(QUEST_STATUSES)
   })).optional(),
   npcUpdates: z.array(z.object({
     name: z.string(),
@@ -471,7 +471,7 @@ const StateDeltaSchema = z.object({
   logs: z.array(z.object({
     id: z.string(),
     timestamp: z.number(),
-    type: z.enum(['choice', 'event', 'system', 'location', 'level_up', 'item', 'combat', 'skill']),
+    type: z.enum(LOG_TYPES),
     text: z.string()
   })).optional(),
   isGameOver: z.boolean().optional()
@@ -528,13 +528,81 @@ export const extractStateUpdates = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            statDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { target: { type: Type.STRING, enum: ['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed', 'strength', 'agility', 'intelligence', 'charisma', 'luck'] }, operation: { type: Type.STRING, enum: ['add', 'subtract', 'set'] }, value: { type: Type.NUMBER } } } },
-            inventoryDeltas: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { operation: { type: Type.STRING, enum: ['add', 'remove'] }, item: { type: Type.STRING } } } },
+            statDeltas: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  target: { type: Type.STRING, enum: [...STAT_DELTA_TARGETS] },
+                  operation: { type: Type.STRING, enum: [...STAT_OPERATIONS] },
+                  value: { type: Type.NUMBER }
+                },
+                required: ['target', 'operation', 'value']
+              }
+            },
+            inventoryDeltas: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  operation: { type: Type.STRING, enum: [...INVENTORY_OPERATIONS] },
+                  item: { type: Type.STRING }
+                },
+                required: ['operation', 'item']
+              }
+            },
             newLocation: { type: Type.STRING },
-            newSkills: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, level: { type: Type.NUMBER }, exp: { type: Type.NUMBER }, maxLevel: { type: Type.NUMBER } } } },
-            questUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, name: { type: Type.STRING }, step: { type: Type.NUMBER }, status: { type: Type.STRING, enum: ['active', 'completed', 'failed'] } } } },
-            npcUpdates: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { name: { type: Type.STRING }, affinity: { type: Type.NUMBER }, isAlive: { type: Type.BOOLEAN } } } },
-            logs: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { id: { type: Type.STRING }, timestamp: { type: Type.NUMBER }, type: { type: Type.STRING, enum: ['event', 'combat', 'item'] }, text: { type: Type.STRING } } } },
+            newSkills: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  level: { type: Type.NUMBER },
+                  exp: { type: Type.NUMBER },
+                  maxLevel: { type: Type.NUMBER }
+                },
+                required: ['name']
+              }
+            },
+            questUpdates: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  name: { type: Type.STRING },
+                  step: { type: Type.NUMBER },
+                  status: { type: Type.STRING, enum: [...QUEST_STATUSES] }
+                },
+                required: ['id', 'name', 'step', 'status']
+              }
+            },
+            npcUpdates: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  affinity: { type: Type.NUMBER },
+                  isAlive: { type: Type.BOOLEAN }
+                },
+                required: ['name', 'affinity', 'isAlive']
+              }
+            },
+            logs: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  timestamp: { type: Type.NUMBER },
+                  type: { type: Type.STRING, enum: [...LOG_TYPES] },
+                  text: { type: Type.STRING }
+                },
+                required: ['id', 'timestamp', 'type', 'text']
+              }
+            },
             isGameOver: { type: Type.BOOLEAN }
           }
         }
