@@ -24,6 +24,7 @@ export const applyStateUpdates = (currentState: GameState, updates: StateUpdateR
           
           // Level up logic
           if (target === 'exp') {
+            // maxExp is progression-owned and only changes through level-up.
             if (newState.stats.maxExp === undefined) newState.stats.maxExp = 100;
             if (newState.stats.level === undefined) newState.stats.level = 1;
             

@@ -12,6 +12,7 @@ export const LOG_TYPES = ['choice', 'event', 'system', 'location', 'level_up', '
 export const QUEST_STATUSES = ['active', 'completed', 'failed'] as const;
 export const STAT_OPERATIONS = ['add', 'subtract', 'set'] as const;
 export const INVENTORY_OPERATIONS = ['add', 'remove'] as const;
+// AI-managed state deltas intentionally exclude maxExp. Level progression owns it internally.
 export const STAT_DELTA_TARGETS = ['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints', 'daysPassed', 'strength', 'agility', 'intelligence', 'charisma', 'luck'] as const;
 
 export interface CharacterStats {
@@ -20,21 +21,10 @@ export interface CharacterStats {
   gold: number;
   level: number;
   exp?: number;
+  // Internal level progression threshold. Story extraction must not update it directly.
   maxExp?: number;
   skillPoints?: number;
   attributes?: Attributes;
-}
-
-export interface ApiSettings {
-  provider: 'default' | 'custom';
-  baseUrl?: string;
-  apiKey?: string;
-  model?: string;
-  
-  bgProvider?: 'default' | 'custom';
-  bgBaseUrl?: string;
-  bgApiKey?: string;
-  bgModel?: string;
 }
 
 export interface LogEntry {
@@ -134,13 +124,4 @@ export interface StateUpdateResult {
   npcUpdates?: NpcState[];
   logs?: LogEntry[];
   isGameOver?: boolean;
-}
-
-declare global {
-  interface Window {
-    aistudio?: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
 }

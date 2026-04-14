@@ -1,13 +1,11 @@
 import { create } from 'zustand';
-import { GameState, LogEntry, Skill, StatDelta, InventoryDelta, Quest, NpcState, GAME_VERSION } from '../types';
+import { GameState, LogEntry, GAME_VERSION } from '../types';
 
 interface GameStore extends GameState {
   skillCooldowns: Record<string, number>;
   setGameState: (state: Partial<GameState> | ((state: GameState) => Partial<GameState>)) => void;
   addLog: (log: LogEntry) => void;
   addRecentHistory: (history: { action: string, story: string }) => void;
-  useSkill: (skillName: string) => void;
-  decrementCooldowns: () => void;
   loadGame: (savedState: Partial<GameState>) => void;
 }
 
@@ -69,28 +67,6 @@ export const useGameStore = create<GameStore>((set) => ({
   addRecentHistory: (history) => set((state) => {
     const newHistory = [...(state.recentHistory || []), history].slice(-20);
     return { recentHistory: newHistory };
-  }),
-
-  useSkill: (skillName) => set((state) => {
-    // Basic cooldown implementation: 3 turns
-    return {
-      skillCooldowns: {
-        ...state.skillCooldowns,
-        [skillName]: 3
-      }
-    };
-  }),
-
-  decrementCooldowns: () => set((state) => {
-    const newCooldowns = { ...state.skillCooldowns };
-    let changed = false;
-    for (const skill in newCooldowns) {
-      if (newCooldowns[skill] > 0) {
-        newCooldowns[skill]--;
-        changed = true;
-      }
-    }
-    return changed ? { skillCooldowns: newCooldowns } : {};
   }),
 
   loadGame: (savedState) => set((state) => {

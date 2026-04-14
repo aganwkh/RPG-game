@@ -1,23 +1,48 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { GameState, ChatMessage, CharacterStats, ApiSettings, Skill, MemoryState, Quest, NpcState, DirectorState, StateUpdateResult, DIRECTOR_PACINGS, INVENTORY_OPERATIONS, LOG_TYPES, QUEST_STATUSES, STAT_DELTA_TARGETS, STAT_OPERATIONS } from '../types';
+import { GameState, MemoryState, DirectorState, StateUpdateResult, DIRECTOR_PACINGS, INVENTORY_OPERATIONS, LOG_TYPES, QUEST_STATUSES, STAT_DELTA_TARGETS, STAT_OPERATIONS } from '../types';
 import { z } from 'zod';
 
-const getAI = () => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.VITE_API_KEY || (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : '');
-  return new GoogleGenAI({ apiKey: (apiKey as string) || 'dummy_key_to_prevent_crash' });
+const getRequiredApiKey = () => {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new Error('Missing Gemini API key. Set VITE_GEMINI_API_KEY in .env.local before starting the app.');
+  }
+
+  return apiKey;
 };
 
-const parseJSONResponse = (text: string) => {
+const getAI = () => {
+  return new GoogleGenAI({ apiKey: getRequiredApiKey() });
+};
+
+const parseJSONResponseSafe = (text: string) => {
   try {
     const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (match) {
-      return JSON.parse(match[1]);
+      return { success: true as const, data: JSON.parse(match[1]) };
     }
-    return JSON.parse(text);
+    return { success: true as const, data: JSON.parse(text) };
   } catch (e) {
     console.error("Failed to parse JSON:", text);
-    throw new Error("API did not return valid JSON");
+    return { success: false as const, error: new Error("API did not return valid JSON") };
   }
+};
+
+const parseResponseWithSchema = <T>(text: string, schema: z.ZodType<T>, context: string) => {
+  const jsonResult = parseJSONResponseSafe(text);
+  if (!jsonResult.success) {
+    console.error(`Failed to parse ${context}:`, jsonResult.error);
+    return jsonResult;
+  }
+
+  const schemaResult = schema.safeParse(jsonResult.data);
+  if (!schemaResult.success) {
+    console.error(`Failed to validate ${context}:`, schemaResult.error);
+    return { success: false as const, error: schemaResult.error };
+  }
+
+  return { success: true as const, data: schemaResult.data };
 };
 
 export const cosineSimilarity = (vecA: number[], vecB: number[]): number => {
@@ -83,6 +108,20 @@ const DirectorUpdateSchema = z.object({
   upcomingEvents: z.array(z.string()),
   tension: z.number().min(0).max(100),
   itemPlotHooks: z.record(z.string(), z.string()).optional()
+});
+
+const RawDirectorUpdateSchema = z.object({
+  currentArc: z.string(),
+  globalPacing: z.enum(DIRECTOR_PACINGS),
+  upcomingEvents: z.array(z.string()),
+  tension: z.number().min(0).max(100),
+  itemPlotHooks: z.union([
+    z.record(z.string(), z.string()),
+    z.array(z.object({
+      itemName: z.string(),
+      hook: z.string()
+    }))
+  ]).optional()
 });
 
 export const updateDirectorState = async (
@@ -194,27 +233,38 @@ ${historyText}
       }
     });
 
-    parsedDirector = parseJSONResponse(response.text || '{}');
-    
-    // Convert array of objects to map
-    if (Array.isArray(parsedDirector.itemPlotHooks)) {
+    const parsedResult = parseResponseWithSchema(response.text || '{}', RawDirectorUpdateSchema, 'director update');
+    if (!parsedResult.success) {
+      return parsedDirector;
+    }
+
+    const normalizedDirector: DirectorState | (z.infer<typeof RawDirectorUpdateSchema> & { itemPlotHooks?: Record<string, string> }) = {
+      ...parsedResult.data
+    };
+
+    if (Array.isArray(normalizedDirector.itemPlotHooks)) {
       const hooksMap: Record<string, string> = {};
-      for (const hook of parsedDirector.itemPlotHooks) {
+      for (const hook of normalizedDirector.itemPlotHooks) {
         if (hook.itemName && hook.hook) {
           hooksMap[hook.itemName] = hook.hook;
         }
       }
-      parsedDirector.itemPlotHooks = hooksMap;
-    }
-    
-    // Ensure itemPlotHooks exists
-    if (!parsedDirector.itemPlotHooks) {
-      parsedDirector.itemPlotHooks = gameState.director?.itemPlotHooks || {};
+      normalizedDirector.itemPlotHooks = hooksMap;
     }
 
-    parsedDirector = DirectorUpdateSchema.parse(parsedDirector);
+    if (!normalizedDirector.itemPlotHooks) {
+      normalizedDirector.itemPlotHooks = gameState.director?.itemPlotHooks || {};
+    }
+
+    const directorResult = DirectorUpdateSchema.safeParse(normalizedDirector);
+    if (!directorResult.success) {
+      console.error("Failed to validate normalized director update:", directorResult.error);
+      return parsedDirector;
+    }
+
+    parsedDirector = directorResult.data;
   } catch (err) {
-    console.error("Failed to parse or validate director update:", err);
+    console.error("Failed to update director state:", err);
   }
   
   return parsedDirector;
@@ -341,11 +391,14 @@ ${historyText}
       }
     });
 
-    parsedMemory = parseJSONResponse(response.text || '{}');
-    
-    parsedMemory = MemoryUpdateSchema.parse(parsedMemory);
+    const parsedResult = parseResponseWithSchema(response.text || '{}', MemoryUpdateSchema, 'memory update');
+    if (!parsedResult.success) {
+      parsedMemory = { summary: currentMemory.summary, worldInfo: [] };
+    } else {
+      parsedMemory = parsedResult.data;
+    }
   } catch (err) {
-    console.error("Failed to parse or validate memory update:", err);
+    console.error("Failed to update memory:", err);
     parsedMemory = { summary: currentMemory.summary, worldInfo: [] };
   }
   
@@ -496,6 +549,9 @@ export const extractStateUpdates = async (
 === 时间流逝 ===
 如果剧情中发生了时间流逝（例如：睡了一觉、长途跋涉、度过了一段时间），请在 statDeltas 中添加一个目标为 "daysPassed" 的 "add" 操作，值为经过的天数（至少为 1）。
 
+=== 状态字段边界 ===
+maxExp 由游戏升级系统内部维护，不要在 statDeltas 中返回或修改 maxExp。
+
 玩家行动: ${action}
 故事事件: ${storyText}
 当前位置: ${gameState.location}
@@ -515,8 +571,6 @@ export const extractStateUpdates = async (
   "logs": [ { "id": "string", "timestamp": number, "type": "event" | "combat" | "item", "text": "string" } ],
   "isGameOver": boolean (仅当故事明确说明玩家死亡时为 true)
 }`;
-
-  let parsedData: Partial<StateUpdateResult> & Record<string, unknown> = {};
 
   try {
     const ai = getAI();
@@ -609,11 +663,14 @@ export const extractStateUpdates = async (
       }
     });
 
-    parsedData = parseJSONResponse(response.text || '{}');
+    const parsedResult = parseResponseWithSchema(response.text || '{}', StateDeltaSchema, 'state updates');
+    if (!parsedResult.success) {
+      return {};
+    }
 
-    return StateDeltaSchema.parse(parsedData);
+    return parsedResult.data;
   } catch (error) {
-    console.error("Failed to parse or validate state updates:", error);
+    console.error("Failed to extract state updates:", error);
     // Return empty state updates if validation fails to prevent crash
     return {};
   }

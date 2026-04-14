@@ -33,6 +33,12 @@ export function Game() {
     setTimeout(() => setToastMessage(null), 3000);
   };
 
+  const getSerializableState = () => {
+    const currentState = useGameStore.getState();
+    const { setGameState, addLog, addRecentHistory, loadGame, ...serializableState } = currentState;
+    return serializableState;
+  };
+
   const buildNextSkillCooldowns = (currentCooldowns: Record<string, number>, usedSkills: string[]) => {
     const nextCooldowns = { ...currentCooldowns };
 
@@ -116,15 +122,7 @@ export function Game() {
   const saveGame = async () => {
     if (isGameStarted) {
       try {
-        // Strip functions before saving to IndexedDB (structured clone doesn't support functions)
-        const stateToSave: Partial<GameState> & Record<string, unknown> = { ...gameState };
-        delete stateToSave.setGameState;
-        delete stateToSave.addLog;
-        delete stateToSave.addRecentHistory;
-        delete stateToSave.useSkill;
-        delete stateToSave.decrementCooldowns;
-        delete stateToSave.loadGame;
-        
+        const stateToSave = getSerializableState();
         await idbSet('saved_game_state', stateToSave);
         showToast('游戏已手动保存');
         setIsSidebarOpen(false);
@@ -155,14 +153,7 @@ export function Game() {
   const exportSave = () => {
     if (isGameStarted) {
       try {
-        const stateToExport: Partial<GameState> & Record<string, unknown> = { ...gameState };
-        delete stateToExport.setGameState;
-        delete stateToExport.addLog;
-        delete stateToExport.addRecentHistory;
-        delete stateToExport.useSkill;
-        delete stateToExport.decrementCooldowns;
-        delete stateToExport.loadGame;
-
+        const stateToExport = getSerializableState();
         const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(stateToExport));
         const downloadAnchorNode = document.createElement('a');
         downloadAnchorNode.setAttribute("href", dataStr);
