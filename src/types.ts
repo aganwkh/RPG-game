@@ -6,6 +6,8 @@ export interface Attributes {
   luck: number;
 }
 
+export const GAME_VERSION = '1.0.0';
+
 export interface CharacterStats {
   hp: number;
   maxHp: number;
@@ -102,7 +104,7 @@ export interface ChatMessage {
 export type StatOperation = 'add' | 'subtract' | 'set';
 
 export interface StatDelta {
-  target: 'hp' | 'maxHp' | 'gold' | 'level' | 'exp' | 'skillPoints' | 'daysPassed';
+  target: 'hp' | 'maxHp' | 'gold' | 'level' | 'exp' | 'skillPoints' | 'daysPassed' | 'strength' | 'agility' | 'intelligence' | 'charisma' | 'luck';
   operation: StatOperation;
   value: number;
 }

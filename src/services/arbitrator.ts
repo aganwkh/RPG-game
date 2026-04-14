@@ -1,6 +1,6 @@
 import { CharacterStats } from '../types';
 
-export const evaluateAction = (action: string, stats: CharacterStats): { rollMessage: string, actionType: 'combat' | 'dialogue' | 'travel' | 'other' } => {
+export const evaluateAction = (action: string, stats: CharacterStats, tension: number = 10): { rollMessage: string, actionType: 'combat' | 'dialogue' | 'travel' | 'other' } => {
   // Simple keyword matching to determine action type and relevant stat
   const actionLower = action.toLowerCase();
   
@@ -36,14 +36,16 @@ export const evaluateAction = (action: string, stats: CharacterStats): { rollMes
   const modifier = Math.floor((statValue - 10) / 2);
   const total = d20 + modifier;
 
+  const difficulty = 10 + Math.floor(tension / 20); // Base 10, up to 15 at max tension
+
   let resultText = '';
   if (d20 === 20) {
     resultText = '大成功 (Critical Success)';
   } else if (d20 === 1) {
     resultText = '大失败 (Critical Failure)';
-  } else if (total >= 15) {
+  } else if (total >= difficulty + 5) {
     resultText = '成功 (Success)';
-  } else if (total >= 10) {
+  } else if (total >= difficulty) {
     resultText = '勉强成功 (Mixed Success)';
   } else {
     resultText = '失败 (Failure)';
@@ -57,7 +59,7 @@ export const evaluateAction = (action: string, stats: CharacterStats): { rollMes
     luck: '幸运'
   };
 
-  const rollMessage = `[系统检定：${statNameMap[targetStat]} D20=${d20} 修正=${modifier > 0 ? '+'+modifier : modifier} 总计=${total} -> ${resultText}]`;
+  const rollMessage = `[系统检定：${statNameMap[targetStat]} D20=${d20} 修正=${modifier > 0 ? '+'+modifier : modifier} 总计=${total} 难度=${difficulty} -> ${resultText}]`;
 
   return {
     rollMessage,

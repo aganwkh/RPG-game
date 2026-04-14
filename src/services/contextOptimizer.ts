@@ -65,9 +65,10 @@ Try to naturally weave the "Upcoming Events" into the story if the player's acti
         .map(item => item.entry);
     } catch (err) {
       console.error("Failed to retrieve embeddings for worldbook:", err);
-      // Fallback to keyword matching if embedding fails
+      // Fallback to keyword matching if embedding fails (case-insensitive)
+      const lowerRecentText = recentText.toLowerCase();
       relevantWorldbook = gameState.memory.worldInfo.filter(entry => 
-        entry.keywords.some(key => recentText.includes(key))
+        entry.keywords.some(key => lowerRecentText.includes(key.toLowerCase()))
       ).slice(0, 3);
     }
   }

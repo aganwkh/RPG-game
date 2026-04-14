@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { generateStoryStream, extractStateUpdates, updateGameMemory, updateDirectorState } from '../services/ai';
+import { evaluateAction, calculateTension } from '../services/arbitrator';
 import { applyStateUpdates } from '../services/stateReducer';
 import { backgroundTaskQueue } from '../services/taskQueue';
 import { GameState, LogEntry } from '../types';
 import { Sidebar } from './Sidebar';
 import { StoryView } from './StoryView';
-import { SettingsModal } from './SettingsModal';
 import { LogsModal } from './LogsModal';
 import { WorldbookModal } from './WorldbookModal';
 import { DirectorModal } from './DirectorModal';
@@ -23,7 +23,6 @@ export function Game() {
   const [isGameStarted, setIsGameStarted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLogsOpen, setIsLogsOpen] = useState(false);
   const [isWorldbookOpen, setIsWorldbookOpen] = useState(false);
   const [isDirectorOpen, setIsDirectorOpen] = useState(false);
@@ -212,25 +211,30 @@ export function Game() {
     // Save previous state to restore on error
     const previousState = { ...gameState };
     
+    // Decrement cooldowns for all skills first
+    useGameStore.getState().decrementCooldowns();
+
+    // Evaluate action with arbitrator
+    const tension = gameState.director?.tension || 10;
+    const { rollMessage, actionType } = evaluateAction(choice, gameState.stats, tension);
+    const actionWithRoll = `${choice}\n${rollMessage}`;
+
     // Check if the choice uses any skills and put them on cooldown
     if (gameState.skills) {
       const usedSkills = gameState.skills.filter(skill => choice.includes(skill.name));
       if (usedSkills.length > 0) {
         usedSkills.forEach(skill => {
-          setSkillCooldowns(skill.name);
+          useGameStore.getState().useSkill(skill.name);
         });
       }
     }
 
     try {
-      // Decrement cooldowns for all skills
-      useGameStore.getState().decrementCooldowns();
-
       // Clear previous choices and start streaming
       setGameState(prev => ({ ...prev, choices: [], storyText: '' }));
       
       let fullStory = '';
-      const stream = generateStoryStream(gameState, choice);
+      const stream = generateStoryStream(gameState, actionWithRoll);
       for await (const chunk of stream) {
         fullStory += chunk;
         setGameState(prev => ({ ...prev, storyText: fullStory }));
@@ -254,9 +258,9 @@ export function Game() {
         text: `你选择了: ${choice}`
       });
       
-      useGameStore.getState().addRecentHistory({ action: choice, story: fullStory });
+      useGameStore.getState().addRecentHistory({ action: actionWithRoll, story: fullStory });
       
-      const updates = await backgroundTaskQueue.enqueue(() => extractStateUpdates(gameState, choice, fullStory));
+      const updates = await backgroundTaskQueue.enqueue(() => extractStateUpdates(gameState, actionWithRoll, fullStory));
       setGameState(prev => applyStateUpdates(prev, updates));
       
       // Asynchronously update memory every 5 turns
@@ -363,16 +367,7 @@ export function Game() {
               导入存档
             </button>
           </div>
-          <div className="mt-12">
-            <button
-              onClick={() => setIsSettingsOpen(true)}
-              className="text-zinc-500 hover:text-zinc-300 transition-colors text-sm underline underline-offset-4"
-            >
-              API 设置
-            </button>
-          </div>
         </div>
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         
         {/* Toast Notification */}
         <AnimatePresence>
@@ -402,11 +397,7 @@ export function Game() {
           <button onClick={startGame} className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors">
             重试
           </button>
-          <button onClick={() => setIsSettingsOpen(true)} className="px-4 py-2 ml-2 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 rounded-lg transition-colors">
-            API 设置
-          </button>
         </div>
-        <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       </div>
     );
   }
@@ -440,7 +431,6 @@ export function Game() {
       </div>
 
       <Sidebar 
-        onOpenSettings={() => { setIsSettingsOpen(true); setIsSidebarOpen(false); }}
         onOpenWorldbook={() => { setIsWorldbookOpen(true); setIsSidebarOpen(false); }}
         onOpenLogs={() => { setIsLogsOpen(true); setIsSidebarOpen(false); }}
         onOpenDirector={() => { setIsDirectorOpen(true); setIsSidebarOpen(false); }}
@@ -523,7 +513,6 @@ export function Game() {
         </div>
       </main>
 
-      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <LogsModal isOpen={isLogsOpen} onClose={() => setIsLogsOpen(false)} logs={gameState?.logs || []} />
       <DirectorModal isOpen={isDirectorOpen} onClose={() => setIsDirectorOpen(false)} director={gameState?.director} />
       <WorldbookModal

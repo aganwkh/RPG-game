@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { GameState, LogEntry, Skill, StatDelta, InventoryDelta, Quest, NpcState } from '../types';
-import { GAME_VERSION } from '../services/httpClient';
+import { GameState, LogEntry, Skill, StatDelta, InventoryDelta, Quest, NpcState, GAME_VERSION } from '../types';
 
 interface GameStore extends GameState {
   skillCooldowns: Record<string, number>;

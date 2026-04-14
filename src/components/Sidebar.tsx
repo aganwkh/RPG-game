@@ -7,7 +7,6 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { useGameStore } from '../store/gameStore';
 
 interface SidebarProps {
-  onOpenSettings: () => void;
   onOpenWorldbook: () => void;
   onOpenLogs: () => void;
   onOpenDirector: () => void;
@@ -21,7 +20,7 @@ interface SidebarProps {
   onClose: () => void;
 }
 
-export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onOpenDirector, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
+export function Sidebar({ onOpenWorldbook, onOpenLogs, onOpenDirector, onSave, onLoad, onExport, onImport, onNewGame, onUseSkill, isOpen, onClose }: SidebarProps) {
   const inventory = useGameStore(state => state.inventory);
   const skills = useGameStore(state => state.skills);
   const skillCooldowns = useGameStore(state => state.skillCooldowns);
@@ -791,13 +790,6 @@ export function Sidebar({ onOpenSettings, onOpenWorldbook, onOpenLogs, onOpenDir
             <span className="text-sm font-medium tracking-wide">导入</span>
           </button>
         </div>
-        <button 
-          onClick={onOpenSettings}
-          className="flex items-center justify-center gap-2 text-zinc-400 hover:text-white transition-all duration-300 w-full p-3 rounded-xl hover:bg-white/10 border border-transparent hover:border-white/10"
-        >
-          <Settings className="w-4 h-4" />
-          <span className="text-sm font-medium tracking-wide">API 设置</span>
-        </button>
       </div>
     </aside>
     </>

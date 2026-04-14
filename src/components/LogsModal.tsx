@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
 import { LogEntry } from '../types';
 import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
 import { parseStoryText } from '../utils/textParser';
 
 interface LogsModalProps {
@@ -42,7 +41,7 @@ export function LogsModal({ isOpen, onClose, logs }: LogsModalProps) {
                       {new Date(log.timestamp).toLocaleTimeString()}
                     </span>
                     <div className="text-sm text-zinc-300 prose prose-invert max-w-none prose-p:m-0">
-                      <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                      <ReactMarkdown>
                         {parseStoryText(log.text || '')}
                       </ReactMarkdown>
                     </div>

@@ -17,10 +17,33 @@ export const applyStateUpdates = (currentState: GameState, updates: StateUpdateR
       
       const op = delta.operation as string;
       
-      if (['hp', 'maxHp', 'gold', 'level', 'exp', 'maxExp', 'skillPoints'].includes(target)) {
+      if (['hp', 'maxHp', 'gold', 'level', 'exp', 'skillPoints'].includes(target)) {
         const statsRecord = newState.stats as unknown as Record<string, number>;
         if (op === 'add' || op === 'increase') {
           statsRecord[target] = (statsRecord[target] || 0) + value;
+          
+          // Level up logic
+          if (target === 'exp') {
+            if (newState.stats.maxExp === undefined) newState.stats.maxExp = 100;
+            if (newState.stats.level === undefined) newState.stats.level = 1;
+            
+            while ((newState.stats.exp || 0) >= newState.stats.maxExp) {
+              newState.stats.exp = (newState.stats.exp || 0) - newState.stats.maxExp;
+              newState.stats.level += 1;
+              newState.stats.maxExp = Math.floor(newState.stats.maxExp * 1.5);
+              newState.stats.skillPoints = (newState.stats.skillPoints || 0) + 1;
+              newState.stats.maxHp = (newState.stats.maxHp || 100) + 10;
+              newState.stats.hp = newState.stats.maxHp;
+              
+              if (!newState.logs) newState.logs = [];
+              newState.logs.push({
+                id: Date.now().toString() + Math.random().toString(),
+                timestamp: Date.now(),
+                type: 'level_up',
+                text: `升级了！达到了等级 ${newState.stats.level}`
+              });
+            }
+          }
         } else if (op === 'subtract' || op === 'decrease') {
           statsRecord[target] = Math.max(0, (statsRecord[target] || 0) - value);
         } else if (op === 'set') {

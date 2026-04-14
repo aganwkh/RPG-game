@@ -3,7 +3,6 @@ import { motion } from 'motion/react';
 import { useGameStore } from '../store/gameStore';
 import { Loader2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
 import { parseStoryText } from '../utils/textParser';
 
 interface StoryViewProps {
@@ -24,7 +23,7 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
         className="prose prose-invert max-w-none prose-p:leading-relaxed prose-p:mb-4 text-zinc-300 text-lg md:text-xl font-serif"
       >
         <div className="markdown-body">
-          <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+          <ReactMarkdown>
             {parseStoryText(storyText || '')}
           </ReactMarkdown>
         </div>
@@ -51,7 +50,7 @@ export function StoryView({ onChoice, onRestart, isLoading }: StoryViewProps) {
               className="text-left p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:bg-zinc-800 hover:border-zinc-700 transition-all text-zinc-300 hover:text-white"
             >
               <div className="prose prose-invert max-w-none prose-p:m-0">
-                <ReactMarkdown rehypePlugins={[rehypeRaw]}>
+                <ReactMarkdown>
                   {parseStoryText(choice)}
                 </ReactMarkdown>
               </div>
